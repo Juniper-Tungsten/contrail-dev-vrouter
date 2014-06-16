@@ -45,12 +45,11 @@
 
 static struct nl_client *cl;
 static char flag_string[32], if_name[IFNAMSIZ];
-static int if_kindex = -1, vrf_id, vr_ifindex = 100;
+static int if_kindex = -1, vrf_id, vr_ifindex = -1;
 static bool need_xconnect_if = false;
 static int if_xconnect_kindex = -1;
 static short vlan_id = -1;
 static int vr_ifflags;
-static int p_ifindex;
 
 static int add_set, create_set, get_set, list_set;
 static int kindex_set, type_set, help_set, set_set, vlan_set;
@@ -477,9 +476,6 @@ Usage()
 enum if_opt_index {
     ADD_OPT_INDEX,
     CREATE_OPT_INDEX,
-    CREATE_VLAN_INTERFACE_OPT_INDEX,
-    PARENT_IF_OPT_INDEX,
-    SMAC_OPT_INDEX,
     GET_OPT_INDEX,
     LIST_OPT_INDEX,
     VRF_OPT_INDEX,
