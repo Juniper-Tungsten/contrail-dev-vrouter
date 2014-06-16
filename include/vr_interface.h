@@ -8,6 +8,7 @@
 
 #include "vr_defs.h"
 #include "vr_types.h"
+#include "vr_htable.h"
 
 /* 2 interfaces/VM + maximum vlan interfaces */
 #define VR_MAX_INTERFACES           (256 + 4096)
@@ -95,7 +96,6 @@ struct vr_interface {
     unsigned short vif_vrf;
     unsigned short vif_rid;
     unsigned short vif_mtu;
-    unsigned short vif_vlan_id;
 
     unsigned int vif_flags;
     unsigned int vif_idx;
@@ -107,6 +107,7 @@ struct vr_interface {
     struct vr_interface *vif_bridge;
     struct vr_interface_stats *vif_stats;
 
+    unsigned short vif_vlan_id;
     unsigned short vif_nh_id;
     unsigned short vif_vrf_table_users;
     uint8_t vif_mirror_id; /* best placed here for now - less space wasted */
@@ -133,6 +134,8 @@ struct vr_interface {
 
     struct vr_interface **vif_sub_interfaces;
     struct vr_interface_driver *vif_driver;
+    unsigned char *vif_src_mac;
+    vr_htable_t vif_btable;
 
     unsigned char vif_rewrite[VR_ETHER_HLEN];
     unsigned char vif_mac[VR_ETHER_ALEN];
