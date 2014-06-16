@@ -8,6 +8,7 @@
 #include "vr_sandesh.h"
 #include "vr_mirror.h"
 #include "vr_htable.h"
+#include "vr_datapath.h"
 
 volatile bool agent_alive = false;
 
@@ -68,6 +69,16 @@ vif_drop_pkt(struct vr_interface *vif, struct vr_packet *pkt, bool input)
     return;
 }
 
+static inline bool
+vr_my_pkt(unsigned char *pkt_mac, struct vr_interface *vif)
+{
+    if (VR_MAC_CMP(pkt_mac, vif->vif_mac) ||
+                 vif->vif_type == VIF_TYPE_HOST)
+        return true;
+
+    return false;
+}
+
 /*
  * vr_interface_input() is invoked if a packet ingresses an interface. 
  * This function demultiplexes the packet to right input 
@@ -78,7 +89,10 @@ vr_interface_input(unsigned short vrf, struct vr_interface *vif,
                        struct vr_packet *pkt, unsigned short vlan_id)
 {
     struct vr_forwarding_md fmd;
-    unsigned int ret;
+    unsigned char *data = pkt_data(pkt);
+    unsigned short pull_len, eth_proto;
+    int unhandled;
+    struct vr_arp *arph;
 
     vr_init_forwarding_md(&fmd);
 
@@ -92,22 +106,41 @@ vr_interface_input(unsigned short vrf, struct vr_interface *vif,
         vlan_id = VLAN_ID_INVALID;
     }
 
-    /* If vlan tagged from VM, packet needs to be treated as L2 packet */
-    if ((vif->vif_type == VIF_TYPE_PHYSICAL) ||  (vlan_id == VLAN_ID_INVALID)) {
-        if (vif->vif_flags & VIF_FLAG_L3_ENABLED) {
-            ret = vr_l3_input(vrf, pkt, &fmd);
-            if (ret != PKT_RET_FALLBACK_BRIDGING)
-                return ret;
+    pull_len = vr_get_eth_proto(pkt, &eth_proto);
+    if (pull_len < 0) {
+        vif_drop_pkt(vif, pkt, 1);
+        return 0;
+    }
+
+    if (vif->vif_flags & VIF_FLAG_L3_ENABLED) {
+        if (eth_proto == VR_ETH_PROTO_IP) {
+            if (vr_my_pkt(data, vif)) {
+                pkt_pull(pkt, pull_len);
+                return vr_l3_input(vrf, pkt, &fmd);
+            }
+            unhandled = vr_trap_well_known_packets(vrf, pkt, eth_proto,
+                                               (pkt_data(pkt) + pull_len));
+            if (!unhandled)
+                return 0;
+        } else if (eth_proto == VR_ETH_PROTO_ARP) {
+            arph = (struct vr_arp *)(pkt_data(pkt) + pull_len);
+            unhandled = vr_arp_input(vif->vif_router, vrf, pkt, arph, vlan_id, &fmd);
+            if (!unhandled)
+                return 0;
         }
     }
 
     if (vif->vif_flags & VIF_FLAG_L2_ENABLED)
-        return vr_l2_input(vrf, pkt, &fmd);
+        return vr_l2_input(vrf, pkt, &fmd, vlan_id, eth_proto,
+                                        (pkt_data(pkt) + pull_len));
+    else if (eth_proto == VR_ETH_PROTO_IP && IS_MAC_BMCAST(data)) {
+        pkt_pull(pkt, pull_len);
+        return vr_l3_input(vrf, pkt, &fmd);
+    }
 
     vif_drop_pkt(vif, pkt, 1);
     return 0;
 }
-
 
 /*
  * in the rewrite case, we will assume the positive case of caller
