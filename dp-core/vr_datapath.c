@@ -124,8 +124,8 @@ vr_arp_request_treatment(struct vr_interface *vif, struct vr_arp *arp,
 }
 
 static int
-vr_handle_arp_request(struct vrouter *router, unsigned short vrf,
-        struct vr_arp *sarp, struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
+                      struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     struct vr_packet *cloned_pkt;
     struct vr_interface *vif = pkt->vp_if;
@@ -202,8 +202,8 @@ vr_handle_arp_request(struct vrouter *router, unsigned short vrf,
  * from fabric needs to be Xconnected and sent to agent
  */
 static int
-vr_handle_arp_reply(struct vrouter *router, unsigned short vrf,
-        struct vr_arp *sarp, struct vr_packet *pkt)
+vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
+                    struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     unsigned int rt_flags;
     struct vr_interface *vif = pkt->vp_if;
@@ -236,7 +236,7 @@ vr_handle_arp_reply(struct vrouter *router, unsigned short vrf,
 }
 
 int
-vr_get_eth_proto(struct vr_packet *pkt, unsigned short *eproto)
+vr_pkt_type(struct vr_packet *pkt)
 {
     unsigned char *data = pkt_data(pkt);
     unsigned char *eth = data;
@@ -257,35 +257,39 @@ vr_get_eth_proto(struct vr_packet *pkt, unsigned short *eproto)
         pull_len += sizeof(*vlan);
     }
 
-    if (eproto)
-        *eproto = eth_proto;
+    pkt_set_network_header(pkt, pkt->vp_data + pull_len);
+    if (eth_proto == VR_ETH_PROTO_IP)
+        pkt->vp_type = VP_TYPE_IP;
+    else if (eth_proto == VR_ETH_PROTO_ARP)
+        pkt->vp_type = VP_TYPE_ARP;
+    else
+        pkt->vp_type = VP_TYPE_L2;
 
-    return pull_len;
+    return 0;
 }
 
 int
-vr_arp_input(struct vrouter *router, unsigned short vrf,
-             struct vr_packet *pkt, struct vr_arp *arp_hdr,
-             unsigned short vlan_id, struct vr_forwarding_md *fmd)
+vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
+             struct vr_forwarding_md *fmd)
 {
     struct vr_arp sarp;
 
-    /* If vlan tagged packet from VM, we bridge it */
-    if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL &&
-                                vlan_id != VLAN_ID_INVALID)
-        return -1;
+    if (!pkt_get_network_header_off(pkt)) {
+        vr_pfree(pkt, VP_DROP_INVALID_PACKET);
+        return 1;
+    }
 
-    memcpy(&sarp, arp_hdr, sizeof(struct vr_arp));
+    memcpy(&sarp, pkt_network_header(pkt), sizeof(struct vr_arp));
     switch (ntohs(sarp.arp_op)) {
     case VR_ARP_OP_REQUEST:
-        vr_handle_arp_request(router, vrf, &sarp, pkt, fmd);
+        vr_handle_arp_request(vrf, &sarp, pkt, fmd);
         break;
 
     case VR_ARP_OP_REPLY:
         /* ARP reply from virual interface need not be processed */
         if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL)
-            return -1;
-        vr_handle_arp_reply(router, vrf, &sarp, pkt);
+            return 0;
+        vr_handle_arp_reply(vrf, &sarp, pkt, fmd);
         break;
 
     default:
@@ -316,6 +320,104 @@ vr_trap(struct vr_packet *pkt, unsigned short trap_vrf,
     return 0;
 }
 
+static inline bool
+vr_my_mac(unsigned char *pkt_mac, struct vr_interface *vif)
+{
+
+    if (VR_MAC_CMP(pkt_mac, vif->vif_mac))
+        return true;
+
+    return false;
+}
+
+/*
+ * vr_interface_input() is invoked if a packet ingresses an interface.
+ * This function demultiplexes the packet to right input
+ * function depending on the protocols enabled on the VIF
+ */
+unsigned int
+vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
+                       struct vr_packet *pkt, unsigned short vlan_id)
+{
+    struct vr_forwarding_md fmd;
+    unsigned char *data = pkt_data(pkt);
+    int handled = 0;
+    unsigned short pull_len;
+
+    vr_init_forwarding_md(&fmd);
+    fmd.fmd_vlan = vlan_id;
+
+    if (vif->vif_flags & VIF_FLAG_MIRROR_RX) {
+        fmd.fmd_dvrf = vif->vif_vrf;
+        vr_mirror(vif->vif_router, vif->vif_mirror_id, pkt, &fmd);
+    }
+
+    if (vr_pkt_type(pkt) < 0) {
+        vif_drop_pkt(vif, pkt, 1);
+        return 0;
+    }
+    pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+
+    /*
+     * Even if L3 enabled, we treat a vlan tagged non service chain IP packet
+     * as L2 packet
+     */
+    if ((vif->vif_flags & VIF_FLAG_L3_ENABLED) &&
+        (vlan_id == VLAN_ID_INVALID || vif->vif_vrf_table)) {
+        if (pkt->vp_type == VP_TYPE_IP) {
+            if (vr_my_mac(data, vif)) {
+                pkt_pull(pkt, pull_len);
+                handled = vr_l3_input(vrf, pkt, &fmd);
+            } else  {
+                handled = vr_trap_l3_well_known_packets(vrf, pkt, &fmd);
+            }
+        } else if (pkt->vp_type == VP_TYPE_ARP) {
+            handled = vr_arp_input(vrf, pkt, &fmd);
+        }
+        if (handled)
+            return 0;
+    }
+
+    if (vif->vif_flags & VIF_FLAG_L2_ENABLED) {
+        if (vr_l2_input(vrf, pkt, &fmd))
+            return 0;
+    }
+
+    vif_drop_pkt(vif, pkt, 1);
+    return 0;
+}
+
+unsigned int
+vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
+                unsigned short vlan_id)
+{
+    int handled = 0;
+    unsigned short pull_len;
+    struct vr_forwarding_md fmd;
+
+    if (vr_pkt_type(pkt) < 0) {
+        vif_drop_pkt(vif, pkt, 1);
+        return 0;
+    }
+
+    pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+
+    vr_init_forwarding_md(&fmd);
+    fmd.fmd_vlan = vlan_id;
+
+    if (pkt->vp_type == VP_TYPE_IP) {
+        pkt_pull(pkt, pull_len);
+        handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
+    } else if (pkt->vp_type == VP_TYPE_ARP) {
+        handled = vr_arp_input(vif->vif_vrf, pkt, &fmd);
+    }
+
+    if (!handled)
+        return vif_xconnect(vif, pkt);
+
+    return 0;
+}
+
 
 unsigned int
 vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
@@ -324,39 +426,80 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
     int reason;
     struct vr_interface *vif = pkt->vp_if;
 
-    pkt_set_network_header(pkt, pkt->vp_data);
     pkt_set_inner_network_header(pkt, pkt->vp_data);
     if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj &&
                             (vif->vif_type == VIF_TYPE_VIRTUAL)) {
         if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, VROUTER_OVERLAY_LEN))) {
             vr_pfree(pkt, reason);
-            return 0;
+            return 1;
         }
     }
-    return vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+    vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+    return 1;
+}
+
+unsigned int
+vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
+            struct vr_forwarding_md *fmd)
+{
+    int pull_len;
+    int reason;
+
+
+    /* Even in L2 mode we will have to adjust the MSS for TCP*/
+    if (pkt->vp_type == VP_TYPE_IP) {
+        if (!pkt_get_network_header_off(pkt)) {
+            vr_pfree(pkt, VP_DROP_INVALID_PACKET);
+            return 1;
+        }
+
+        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+        if (!pkt_pull(pkt, pull_len)) {
+            vr_pfree(pkt, VP_DROP_INVALID_PACKET);
+            return 1;
+        }
+        /* Mark the network header if an L3 packet */
+        pkt_set_network_header(pkt, pkt->vp_data);
+        pkt_set_inner_network_header(pkt, pkt->vp_data);
+        if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj &&
+                            (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL)) {
+            if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, VROUTER_OVERLAY_LEN_IN_L2_MODE))) {
+                vr_pfree(pkt, reason);
+                return 1;
+            }
+        }
+        /* Restore back the L2 headers */
+        if (!pkt_push(pkt, pull_len)) {
+            vr_pfree(pkt, VP_DROP_PULL);
+            return 1;
+        }
+    }
+
+
+    /* Mark the packet as L2 */
+    pkt->vp_type = VP_TYPE_L2;
+    vr_bridge_input(pkt->vp_if->vif_router, vrf, pkt, fmd);
+    return 1;
 }
 
 int
-vr_trap_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
-                            unsigned short eth_proto, unsigned char *l3_hdr)
+vr_trap_l3_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
+                              struct vr_forwarding_md *fmd)
 {
     unsigned char *data = pkt_data(pkt);
     struct vr_interface *vif = pkt->vp_if;
     struct vr_ip *iph;
     struct vr_udp *udph;
+    unsigned char *l3_hdr;
 
-    if (!(vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
-        return -1;
+    if (!pkt_get_network_header_off(pkt)) {
+        vr_pfree(pkt, VP_DROP_INVALID_PACKET);
+        return 1;
     }
 
-    if (well_known_mac(data)) {
-        vr_trap(pkt, vrf,  AGENT_TRAP_L2_PROTOCOLS, NULL);
-        return 0;
-    }
-
-    if (eth_proto == VR_ETH_PROTO_IP && IS_MAC_BMCAST(data) &&
-                          pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL) {
-        iph = (struct vr_ip *)(l3_hdr);
+    l3_hdr = pkt_network_header(pkt);
+    if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL && IS_MAC_BMCAST(data)) {
+        iph = (struct vr_ip *)l3_hdr;
         if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
                               vr_ip_transport_header_valid(iph)) {
             udph = (struct vr_udp *)(l3_hdr + iph->ip_hl * 4);
@@ -368,5 +511,20 @@ vr_trap_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
         }
     }
 
-    return -1;
+    return 0;
+}
+
+int
+vr_trap_l2_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
+                              struct vr_forwarding_md *fmd)
+{
+
+    if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL && 
+                          well_known_mac(pkt_data(pkt))) {
+        vr_trap(pkt, vrf,  AGENT_TRAP_L2_PROTOCOLS, NULL);
+        return 1;   
+    }
+
+    return 0;
+>>>>>>> IRB - Rx routine changes
 }

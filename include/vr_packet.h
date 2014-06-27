@@ -80,7 +80,8 @@
 #define VP_TYPE_L2OIP           5
 #define VP_TYPE_VXLAN           6
 #define VP_TYPE_AGENT           7
-#define VP_TYPE_MAX             8 
+#define VP_TYPE_ARP             8
+#define VP_TYPE_MAX             9
 
 /*
  * Values to define how to proceed with handling a packet.

@@ -14,7 +14,8 @@ volatile bool agent_alive = false;
 
 static struct vr_host_interface_ops *hif_ops;
 
-static int eth_srx(struct vr_interface *, struct vr_packet *, unsigned short);
+static int vm_srx(struct vr_interface *, struct vr_packet *, unsigned short);
+static int vm_rx(struct vr_interface *, struct vr_packet *, unsigned short);
 static int eth_rx(struct vr_interface *, struct vr_packet *, unsigned short);
 
 extern struct vr_host_interface_ops *vr_host_interface_init(void);
@@ -69,78 +70,6 @@ vif_drop_pkt(struct vr_interface *vif, struct vr_packet *pkt, bool input)
     return;
 }
 
-static inline bool
-vr_my_pkt(unsigned char *pkt_mac, struct vr_interface *vif)
-{
-    if (VR_MAC_CMP(pkt_mac, vif->vif_mac) ||
-                 vif->vif_type == VIF_TYPE_HOST)
-        return true;
-
-    return false;
-}
-
-/*
- * vr_interface_input() is invoked if a packet ingresses an interface. 
- * This function demultiplexes the packet to right input 
- * function depending on the protocols enabled on the VIF
- */
-static unsigned int
-vr_interface_input(unsigned short vrf, struct vr_interface *vif,
-                       struct vr_packet *pkt, unsigned short vlan_id)
-{
-    struct vr_forwarding_md fmd;
-    unsigned char *data = pkt_data(pkt);
-    unsigned short pull_len, eth_proto;
-    int unhandled;
-    struct vr_arp *arph;
-
-    vr_init_forwarding_md(&fmd);
-
-    if (vif->vif_flags & VIF_FLAG_MIRROR_RX) {
-        fmd.fmd_dvrf = vif->vif_vrf;
-        vr_mirror(vif->vif_router, vif->vif_mirror_id, pkt, &fmd);
-    }
-
-    if (vif->vif_vrf_table) {
-        fmd.fmd_vlan = vlan_id;
-        vlan_id = VLAN_ID_INVALID;
-    }
-
-    pull_len = vr_get_eth_proto(pkt, &eth_proto);
-    if (pull_len < 0) {
-        vif_drop_pkt(vif, pkt, 1);
-        return 0;
-    }
-
-    if (vif->vif_flags & VIF_FLAG_L3_ENABLED) {
-        if (eth_proto == VR_ETH_PROTO_IP) {
-            if (vr_my_pkt(data, vif)) {
-                pkt_pull(pkt, pull_len);
-                return vr_l3_input(vrf, pkt, &fmd);
-            }
-            unhandled = vr_trap_well_known_packets(vrf, pkt, eth_proto,
-                                               (pkt_data(pkt) + pull_len));
-            if (!unhandled)
-                return 0;
-        } else if (eth_proto == VR_ETH_PROTO_ARP) {
-            arph = (struct vr_arp *)(pkt_data(pkt) + pull_len);
-            unhandled = vr_arp_input(vif->vif_router, vrf, pkt, arph, vlan_id, &fmd);
-            if (!unhandled)
-                return 0;
-        }
-    }
-
-    if (vif->vif_flags & VIF_FLAG_L2_ENABLED)
-        return vr_l2_input(vrf, pkt, &fmd, vlan_id, eth_proto,
-                                        (pkt_data(pkt) + pull_len));
-    else if (eth_proto == VR_ETH_PROTO_IP && IS_MAC_BMCAST(data)) {
-        pkt_pull(pkt, pull_len);
-        return vr_l3_input(vrf, pkt, &fmd);
-    }
-
-    vif_drop_pkt(vif, pkt, 1);
-    return 0;
-}
 
 /*
  * in the rewrite case, we will assume the positive case of caller
@@ -193,7 +122,7 @@ vr_interface_service_enable(struct vr_interface *vif)
         vif->vif_vrf_table_users = 0;
     }
 
-    vif->vif_rx = eth_srx;
+    vif->vif_rx = vm_srx;
 
     return 0;
 }
@@ -202,7 +131,11 @@ vr_interface_service_enable(struct vr_interface *vif)
 static void
 vr_interface_service_disable(struct vr_interface *vif)
 {
-    vif->vif_rx = eth_rx;
+
+    if (vif_is_virtual(vif))
+        vif->vif_rx = vm_rx;
+    else
+        vif->vif_rx = eth_rx;
 
     /*
      * once everybody sees the change, we are free to do whatever
@@ -355,7 +288,7 @@ agent_rx(struct vr_interface *vif, struct vr_packet *pkt,
             agent_vif = vif;
         }
         pkt->vp_if = agent_vif;
-        vr_interface_input(ntohs(hdr->hdr_vrf), agent_vif, pkt, VLAN_ID_INVALID);
+        vr_virtual_input(ntohs(hdr->hdr_vrf), agent_vif, pkt, VLAN_ID_INVALID);
     } else {
         vif = __vrouter_get_interface(vrouter_get(0), ntohs(hdr->hdr_ifindex));
         if (!vif) {
@@ -561,7 +494,7 @@ vhost_rx(struct vr_interface *vif, struct vr_packet *pkt,
     if (vif_mode_xconnect(vif))
         return vif_xconnect(vif, pkt);
 
-    return vr_interface_input(vif->vif_vrf, vif, pkt, VLAN_ID_INVALID);
+    return vr_fabric_input(vif, pkt, vlan_id);
 }
 
 static int
@@ -629,20 +562,6 @@ vhost_drv_add(struct vr_interface *vif,
 /* end vhost driver */
 
 /* vlan driver */
-static int
-vlan_rx(struct vr_interface *vif, struct vr_packet *pkt,
-        unsigned short vlan_id __attribute__((unused)))
-{
-    struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
-
-    pkt->vp_if = vif;
-
-    stats->vis_ibytes += pkt_len(pkt);
-    stats->vis_ipackets++;
-
-    return vr_interface_input(vif->vif_vrf, vif, pkt, VLAN_ID_INVALID);
-}
-
 static int
 vlan_tx(struct vr_interface *vif, struct vr_packet *pkt)
 {
@@ -718,7 +637,7 @@ vlan_drv_add(struct vr_interface *vif, vr_interface_req *vifr)
 
     vif->vif_set_rewrite = vif_cmn_rewrite;
     vif->vif_tx = vlan_tx;
-    vif->vif_rx = vlan_rx;
+    vif->vif_rx = vm_rx;
     vif->vif_vlan_id = vifr->vifr_vlan_id;
     vif->vif_ovlan_id = vifr->vifr_ovlan_id;
 
@@ -751,7 +670,7 @@ add_fail:
 
 /* eth driver */
 static int
-eth_srx(struct vr_interface *vif, struct vr_packet *pkt,
+vm_srx(struct vr_interface *vif, struct vr_packet *pkt,
         unsigned short vlan_id)
 {
     unsigned short vrf;
@@ -765,16 +684,37 @@ eth_srx(struct vr_interface *vif, struct vr_packet *pkt,
     else
         vrf = vif->vif_vrf_table[vlan_id].va_vrf;
 
-    return vr_interface_input(vrf, vif, pkt, vlan_id);
+    return vr_virtual_input(vrf, vif, pkt, vlan_id);
 }
 
 static int
-eth_rx(struct vr_interface *vif, struct vr_packet *pkt,
-        unsigned short vlan_id)
+vm_rx(struct vr_interface *vif, struct vr_packet *pkt,
+      unsigned short vlan_id)
 {
     struct vr_interface *sub_vif = NULL;
     struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
     struct vr_eth *eth = (struct vr_eth *)pkt_data(pkt);
+
+    stats->vis_ibytes += pkt_len(pkt);
+    stats->vis_ipackets++;
+
+    if (vlan_id != VLAN_ID_INVALID && vlan_id < VLAN_ID_MAX) {
+        if (vif->vif_sub_interfaces) {
+            sub_vif = vif->vif_sub_interfaces[vlan_id];
+            if (sub_vif)
+                return sub_vif->vif_rx(sub_vif, pkt, VLAN_ID_INVALID);
+        }
+    }
+
+    return vr_virtual_input(vif->vif_vrf, vif, pkt, vlan_id);
+}
+
+
+static int
+eth_rx(struct vr_interface *vif, struct vr_packet *pkt,
+        unsigned short vlan_id __attribute__((unused)))
+{
+    struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
 
     stats->vis_ibytes += pkt_len(pkt);
     stats->vis_ipackets++;
@@ -790,20 +730,7 @@ eth_rx(struct vr_interface *vif, struct vr_packet *pkt,
     if (vif_mode_xconnect(vif))
         pkt->vp_flags |= VP_FLAG_TO_ME;
 
-    if (vlan_id != VLAN_ID_INVALID && vlan_id < VLAN_ID_MAX) {
-        if (vif->vif_btable) {
-            sub_vif = vif_bridge_get_sub_interface(vif->vif_btable, vlan_id,
-                    eth->eth_smac);
-        } else {
-            if (vif->vif_sub_interfaces)
-                sub_vif = vif->vif_sub_interfaces[vlan_id];
-        }
-
-        if (sub_vif)
-            return sub_vif->vif_rx(sub_vif, pkt, vlan_id);
-    }
-
-    return vr_interface_input(vif->vif_vrf, vif, pkt, vlan_id);
+    return vr_fabric_input(vif, pkt, vlan_id);
 }
 
 static int
@@ -928,7 +855,10 @@ eth_drv_add(struct vr_interface *vif,
 
     if (vif->vif_type != VIF_TYPE_STATS) {
         vif->vif_tx = eth_tx;
-        vif->vif_rx = eth_rx;
+        if (vif_is_virtual(vif))
+            vif->vif_rx = vm_rx;
+        else
+            vif->vif_rx = eth_rx;
     }
 
     if (vif->vif_flags & VIF_FLAG_SERVICE_IF) {
