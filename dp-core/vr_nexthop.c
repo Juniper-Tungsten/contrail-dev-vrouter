@@ -17,6 +17,7 @@ extern void vr_init_forwarding_md(struct vr_forwarding_md *);
 struct vr_nexthop *vr_inet_src_lookup(unsigned short, struct vr_ip *, struct vr_packet *);
 extern struct vr_vrf_stats *(*vr_inet_vrf_stats)(unsigned short, unsigned int);
 struct vr_nexthop *ip4_default_nh;
+struct vr_nexthop *ip6_default_nh;
 
 struct vr_nexthop *
 __vrouter_get_nexthop(struct vrouter *router, unsigned int index)
@@ -1312,17 +1313,25 @@ nh_encap_l3_unicast(unsigned short vrf, struct vr_packet *pkt,
 {
     struct vr_interface *vif;
     struct vr_vrf_stats *stats;
-#ifdef VROUTER_CONFIG_DIAG
     struct vr_ip *ip;
-#endif
 
     stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
 
     vif = nh->nh_dev;
-    pkt->vp_type = VP_TYPE_IP;
-#ifdef VROUTER_CONFIG_DIAG
     ip = (struct vr_ip *)pkt_network_header(pkt);
-
+    if (vr_ip_is_ip6(ip)) {
+        pkt->vp_type = VP_TYPE_IP6;
+        if (stats) {
+            if ((pkt->vp_flags & VP_FLAG_GRO) &&
+                    (vif->vif_type == VIF_TYPE_VIRTUAL)) {
+                stats->vrf_gros++;
+            } else {
+                stats->vrf_encaps++;
+            }
+        }
+    } else {
+        pkt->vp_type = VP_TYPE_IP;
+#ifdef VROUTER_CONFIG_DIAG
     if (ip->ip_csum == VR_DIAG_IP_CSUM) {
         pkt->vp_flags &= ~VP_FLAG_GRO;
         if (stats)
@@ -1341,6 +1350,7 @@ nh_encap_l3_unicast(unsigned short vrf, struct vr_packet *pkt,
 #ifdef VROUTER_CONFIG_DIAG
     }
 #endif
+    }
 
     /*
      * For packets being sent up a tap interface, retain the MPLS label
@@ -1366,6 +1376,18 @@ nh_encap_l3_unicast(unsigned short vrf, struct vr_packet *pkt,
             pkt_pull(pkt, VR_MPLS_HDR_LEN);
         }
     } else {
+
+        /* 
+         * Same NH for both V4 and V6, update the rewrite data with correct ethtype
+         */
+        if (pkt->vp_type == VP_TYPE_IP6) {
+            nh->nh_data[12] = 0x86;
+            nh->nh_data[13] = 0xDD;
+        } else {
+            nh->nh_data[12] = 0x08;
+            nh->nh_data[13] = 0x00;
+        }
+            
         if (!vif->vif_set_rewrite(vif, pkt, nh->nh_data,
                 nh->nh_encap_len)) {
             vr_pfree(pkt, VP_DROP_REWRITE_FAIL);

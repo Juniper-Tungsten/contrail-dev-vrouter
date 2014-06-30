@@ -248,6 +248,7 @@ struct vr_vlan_hdr {
 
 #define VR_ETH_PROTO_ARP        0x806
 #define VR_ETH_PROTO_IP         0x800
+#define VR_ETH_PROTO_IP6        0x86DD
 #define VR_ETH_PROTO_VLAN       0x8100
 
 #define VR_DIAG_IP_CSUM         0xffff
@@ -296,6 +297,48 @@ struct vr_ip {
     unsigned int ip_saddr;
     unsigned int ip_daddr;
 } __attribute__((packed));
+
+struct vr_ip6 {
+#ifdef __KERNEL__
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+    unsigned int  
+               ip6_flow:20,
+               ip6_priority:8,
+               ip6_version:4;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+    unsigned int  
+               ip6_version:4,
+               ip6_priority:8,
+               ip6_flow:20;
+#endif
+#else
+#if (__BYTE_ORDER == __LITTLE_ENDIAN)
+    unsigned int  
+               ip6_flow:20,
+               ip6_priority:8,
+               ip6_version:4;
+#elif (__BYTE_ORDER == __BIG_ENDIAN)
+    unsigned int  
+               ip6_version:4,
+               ip6_priority:8,
+               ip6_flow:20;
+#endif
+#endif
+    unsigned short  ip6_plen;        /* payload length */
+    unsigned char   ip6_nxt;         /* next header */
+    unsigned char   ip6_hlim;        /* hop limit */
+    unsigned char ip6_src[16];       /* source address */
+    unsigned char ip6_dst[16];       /* destination address */
+} __attribute__((packed));
+
+static inline bool
+vr_ip_is_ip6(struct vr_ip *iph)
+{
+    if ((iph->ip_version & 0xf) == 0x4)
+        return false;
+    else
+        return true; 
+}
 
 static inline bool
 vr_ip_fragment_tail(struct vr_ip *iph)

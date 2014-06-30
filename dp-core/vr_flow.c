@@ -364,7 +364,7 @@ vr_flow_forward(unsigned short vrf, struct vr_packet *pkt,
     struct vr_interface *vif = pkt->vp_if;
     struct vrouter *router = vif->vif_router;
 
-    if (proto != VR_ETH_PROTO_IP) {
+    if ((proto != VR_ETH_PROTO_IP) && (proto != VR_ETH_PROTO_IP6)) {
         vr_pfree(pkt, VP_DROP_FLOW_INVALID_PROTOCOL);
         return 0;
     }
