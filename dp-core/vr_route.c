@@ -74,9 +74,14 @@ vr_route_add(vr_route_req *req)
             vr_req.rtr_req.rtr_prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
             memcpy(vr_req.rtr_req.rtr_prefix, req->rtr_prefix, RT_IP_ADDR_SIZE(req->rtr_family));
             vr_req.rtr_req.rtr_src_size = vr_req.rtr_req.rtr_marker_size = 0;
+            vr_req.rtr_req.rtr_prefix_size = req->rtr_prefix_size;
+        } else {
+           vr_req.rtr_req.rtr_prefix = NULL;
         }
+
         ret = fs->route_add(fs, &vr_req);
-        vr_free(vr_req.rtr_req.rtr_prefix);
+        if (vr_req.rtr_req.rtr_prefix) 
+            vr_free(vr_req.rtr_req.rtr_prefix);
     }
 
     vr_send_response(ret);
@@ -394,7 +399,7 @@ inet_route_add(struct rtable_fspec *fs, struct vr_route_req *req)
                             (RT_IP_ADDR_SIZE(req->rtr_req.rtr_family)*8)))
         return -EINVAL;
 
-    if (req->rtr_req.rtr_prefix_size) {
+    if (req->rtr_req.rtr_prefix) {
 
         if (req->rtr_req.rtr_family == AF_INET)
             pmask = ~((1 << (32 - req->rtr_req.rtr_prefix_len)) - 1);
@@ -402,14 +407,24 @@ inet_route_add(struct rtable_fspec *fs, struct vr_route_req *req)
             pmask = 0; //TBD: Assume V6 prefix length will be multiple of 8
             
         pmask_byte = req->rtr_req.rtr_prefix_len/8;
-        for (i=pmask_byte+1; i<RT_IP_ADDR_SIZE(req->rtr_req.rtr_family); i++) {
-            req->rtr_req.rtr_prefix[i] = 0;
-            pmask = pmask >> 8;
+        if (pmask_byte < (RT_IP_ADDR_SIZE(req->rtr_req.rtr_family)-1)) {
+            for (i=pmask_byte+1; i<RT_IP_ADDR_SIZE(req->rtr_req.rtr_family); i++) {
+                req->rtr_req.rtr_prefix[i] = 0;
+                pmask = pmask >> 8;
+            }
+            req->rtr_req.rtr_prefix[pmask_byte] = 
+                         req->rtr_req.rtr_prefix[pmask_byte] & (pmask & 0xff);
         }
-        req->rtr_req.rtr_prefix[pmask_byte] = req->rtr_req.rtr_prefix[pmask_byte] & (pmask & 0xff);
     } 
 
-    return rtable->algo_add(rtable, req);
+    if (rtable) {
+        if (rtable->algo_add)
+            return rtable->algo_add(rtable, req);
+        else
+            return -1;
+        } else {
+        return -1;
+    }
 }
 
 int

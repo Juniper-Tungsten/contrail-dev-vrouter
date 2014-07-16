@@ -27,6 +27,7 @@ struct mtrie_bkt_info ip4_bkt_info[IP4_BKT_LEVELS];
 struct mtrie_bkt_info ip6_bkt_info[IP6_BKT_LEVELS];
 
 struct ip_mtrie **vn_rtable[2];
+static int algo_init_done = 0;
 
 static void
 mtrie_ip_bkt_info_init(struct mtrie_bkt_info *ip_bkt_info, int pfx_len)
@@ -988,6 +989,8 @@ mtrie_algo_deinit(struct vr_rtable *rtable, struct rtable_fspec *fs, bool soft_r
     vr_free(rtable->algo_data);
     rtable->algo_data = NULL;
 
+    algo_init_done = 0;
+
     return;
 }
 
@@ -1047,9 +1050,8 @@ mtrie_algo_init(struct vr_rtable *rtable, struct rtable_fspec *fs)
 {
     int ret = 0;
     unsigned int table_memory;
-    static int init_done = 0;
 
-    if (init_done)
+    if (algo_init_done)
         return 0;
 
     table_memory = 2 * sizeof(void *) * fs->rtb_max_vrfs;
@@ -1081,7 +1083,7 @@ mtrie_algo_init(struct vr_rtable *rtable, struct rtable_fspec *fs)
     mtrie_ip_bkt_info_init(ip4_bkt_info, IP4_PREFIX_LEN);
     mtrie_ip_bkt_info_init(ip6_bkt_info, IP6_PREFIX_LEN);
 
-    init_done = 1;
+    algo_init_done = 1;
     return 0;
 
 init_fail:
