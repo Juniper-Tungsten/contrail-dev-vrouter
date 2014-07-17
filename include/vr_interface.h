@@ -8,6 +8,7 @@
 
 #include "vr_defs.h"
 #include "vr_types.h"
+#include "vr_htable.h"
 
 /* 2 interfaces/VM + maximum vlan interfaces */
 #define VR_MAX_INTERFACES           (256 + 4096)
@@ -36,6 +37,8 @@
                                         (vif->vif_type == VIF_TYPE_GATEWAY))
 #define vif_is_service(vif)         (vif->vif_flags & VIF_FLAG_SERVICE_IF)
 
+#define vif_needs_dev(vif)          ((vif->vif_type != VIF_TYPE_VIRTUAL_VLAN))
+
 #define VR_INTERFACE_NAME_LEN       64
 
 #define VR_IF_ADD                   0
@@ -49,12 +52,16 @@
 #define VIF_FLAG_TX_CSUM_OFFLOAD    0x20
 #define VIF_FLAG_L3_ENABLED         0x40
 #define VIF_FLAG_L2_ENABLED         0x80
+#define VIF_FLAG_DHCP_ENABLED       0x100
+/* The physical interface corresponds to a vhost interface */
+#define VIF_FLAG_VHOST_PHYS         0x200
 
 
 #define VIF_VRF_TABLE_ENTRIES       1024
 #define VIF_VRF_INVALID             ((unsigned short)-1)
 
 #define vif_mode_xconnect(vif)      (vif->vif_flags & VIF_FLAG_XCONNECT)
+#define vif_dhcp_enabled(vif)       (vif->vif_flags & VIF_FLAG_DHCP_ENABLED)
 
 struct vr_interface_stats {
     uint64_t vis_ibytes;
@@ -95,7 +102,6 @@ struct vr_interface {
     unsigned short vif_vrf;
     unsigned short vif_rid;
     unsigned short vif_mtu;
-    unsigned short vif_vlan_id;
 
     unsigned int vif_flags;
     unsigned int vif_idx;
@@ -107,6 +113,7 @@ struct vr_interface {
     struct vr_interface *vif_bridge;
     struct vr_interface_stats *vif_stats;
 
+    unsigned short vif_vlan_id;
     unsigned short vif_nh_id;
     unsigned short vif_vrf_table_users;
     uint8_t vif_mirror_id; /* best placed here for now - less space wasted */
@@ -133,6 +140,8 @@ struct vr_interface {
 
     struct vr_interface **vif_sub_interfaces;
     struct vr_interface_driver *vif_driver;
+    unsigned char *vif_src_mac;
+    vr_htable_t vif_btable;
 
     unsigned char vif_rewrite[VR_ETHER_HLEN];
     unsigned char vif_mac[VR_ETHER_ALEN];
@@ -170,6 +179,7 @@ extern int vr_interface_dump_wrapper(vr_interface_req *);
 extern int vr_interface_add(vr_interface_req *, bool);
 
 extern int vif_delete(struct vr_interface *);
+extern struct vr_interface *vif_find(struct vrouter *, char *);
 extern void vif_set_xconnect(struct vr_interface *);
 extern void vif_remove_xconnect(struct vr_interface *);
 extern int vif_xconnect(struct vr_interface *, struct vr_packet *);
@@ -178,5 +188,6 @@ extern int vif_vrf_table_get(struct vr_interface *, vr_vrf_assign_req *);
 extern unsigned int vif_vrf_table_get_nh(struct vr_interface *, unsigned short);
 extern int vif_vrf_table_set(struct vr_interface *, unsigned int,
         short, unsigned short);
+extern void vr_set_vif_ptr(struct net_device *dev, void *vif);
 
 #endif /* __VR_INTERFACE_H__ */

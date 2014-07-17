@@ -476,12 +476,27 @@ vr_ip_partial_csum(struct vr_ip *ip)
     return csum;
 }
 
+unsigned int
+vr_route_flags(unsigned int vrf, unsigned int ip)
+{
+    struct vr_route_req rt;
+
+    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_prefix = ntohl(ip);
+    rt.rtr_req.rtr_prefix_len = 32;
+    rt.rtr_req.rtr_nh_id = 0;
+    rt.rtr_req.rtr_label_flags = 0;
+
+    (void)vr_inet_route_lookup(vrf, &rt, NULL);
+
+    return rt.rtr_req.rtr_label_flags;
+}
+
 bool
 vr_should_proxy(struct vr_interface *vif, unsigned int dip,
         unsigned int sip)
 {
-    struct vr_route_req rt;
-    struct vr_nexthop *nh;
+    unsigned int rt_flags;
 
     /*
      * vr should proxy for all arp requests from VM and from
@@ -542,7 +557,8 @@ vr_should_proxy(struct vr_interface *vif, unsigned int dip,
     if (!nh)
         return false;
 
-    if (rt.rtr_req.rtr_label_flags & VR_RT_HOSTED_FLAG)
+    rt_flags = vr_route_flags(vif->vif_vrf, dip);
+    if (rt_flags & VR_RT_HOSTED_FLAG)
         return true;
 
     return false;
