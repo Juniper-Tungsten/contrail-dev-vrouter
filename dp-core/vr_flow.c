@@ -367,7 +367,7 @@ drop:
     return 0;
 }
 
-static int
+int
 vr_flow_forward(unsigned short vrf, struct vr_packet *pkt,
         unsigned short proto, struct vr_forwarding_md *fmd)
 {
