@@ -161,6 +161,9 @@ extern int vr_flow_init(struct vrouter *);
 extern void vr_flow_exit(struct vrouter *, bool);
 extern unsigned int vr_flow_inet_input(struct vrouter *, unsigned short, 
         struct vr_packet *, unsigned short, struct vr_forwarding_md *);
+
+extern int vr_flow_forward(unsigned short vrf, struct vr_packet *pkt,
+        unsigned short proto, struct vr_forwarding_md *fmd);
 extern inline unsigned int
 vr_flow_bypass(struct vrouter *, struct vr_flow_key *, struct vr_packet *, unsigned int *);
 void *vr_flow_get_va(struct vrouter *, uint64_t);

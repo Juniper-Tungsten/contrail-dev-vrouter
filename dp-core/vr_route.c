@@ -46,6 +46,9 @@ vr_route_delete(vr_route_req *req)
         ret = -ENOENT;
     else {
         vr_req.rtr_req = *req;
+        if (!req->rtr_prefix_size) {
+            return -ENOENT;
+        }
         vr_req.rtr_req.rtr_prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
         memcpy(vr_req.rtr_req.rtr_prefix, req->rtr_prefix, RT_IP_ADDR_SIZE(req->rtr_family));
         vr_req.rtr_req.rtr_src_size = vr_req.rtr_req.rtr_marker_size = 0;

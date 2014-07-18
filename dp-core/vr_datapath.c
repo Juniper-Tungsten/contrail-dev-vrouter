@@ -285,7 +285,8 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
          }
          return vr_flow_inet_input(router, vrf, pkt, eth_proto, fmd);
     } else if (eth_proto == VR_ETH_PROTO_IP6) {
-         return vr_flow_inet_input(router, vrf, pkt, eth_proto, fmd);
+         /* TBD: Skip flow for IPv6 now */
+         return vr_flow_forward(vrf, pkt, eth_proto, fmd);
     } else if (eth_proto == VR_ETH_PROTO_ARP)
         return vr_arp_input(router, vrf, pkt);
 
