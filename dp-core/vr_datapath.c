@@ -356,32 +356,17 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         vif_drop_pkt(vif, pkt, 1);
         return 0;
     }
-    pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
 
-    /*
-     * Even if L3 enabled, we treat a vlan tagged non service chain IP packet
-     * as L2 packet
-     */
-    if ((vif->vif_flags & VIF_FLAG_L3_ENABLED) &&
-        (vlan_id == VLAN_ID_INVALID || vif->vif_vrf_table)) {
-        if (pkt->vp_type == VP_TYPE_IP) {
-            if (vr_my_mac(data, vif)) {
-                pkt_pull(pkt, pull_len);
-                handled = vr_l3_input(vrf, pkt, &fmd);
-            } else  {
-                handled = vr_trap_l3_well_known_packets(vrf, pkt, &fmd);
-            }
-        } else if (pkt->vp_type == VP_TYPE_ARP) {
-            handled = vr_arp_input(vrf, pkt, &fmd);
-        }
+    pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+    if (vr_my_mac(data, vif)) {
+        pkt_pull(pkt, pull_len);
+        handled = vr_l3_input(vrf, pkt, &fmd);
         if (handled)
             return 0;
     }
 
-    if (vif->vif_flags & VIF_FLAG_L2_ENABLED) {
-        if (vr_l2_input(vrf, pkt, &fmd))
+    if (vr_l2_input(vrf, pkt, &fmd))
             return 0;
-    }
 
     vif_drop_pkt(vif, pkt, 1);
     return 0;
@@ -405,13 +390,8 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
     vr_init_forwarding_md(&fmd);
     fmd.fmd_vlan = vlan_id;
 
-    if (pkt->vp_type == VP_TYPE_IP) {
-        pkt_pull(pkt, pull_len);
-        handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
-    } else if (pkt->vp_type == VP_TYPE_ARP) {
-        handled = vr_arp_input(vif->vif_vrf, pkt, &fmd);
-    }
-
+    pkt_pull(pkt, pull_len);
+    handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
     if (!handled)
         return vif_xconnect(vif, pkt);
 
@@ -426,16 +406,21 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
     int reason;
     struct vr_interface *vif = pkt->vp_if;
 
-    pkt_set_inner_network_header(pkt, pkt->vp_data);
-    if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj &&
-                            (vif->vif_type == VIF_TYPE_VIRTUAL)) {
-        if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, VROUTER_OVERLAY_LEN))) {
-            vr_pfree(pkt, reason);
-            return 1;
+    if (pkt->vp_type == VP_TYPE_IP) {
+        pkt_set_inner_network_header(pkt, pkt->vp_data);
+        if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj &&
+            (vif->vif_type == VIF_TYPE_VIRTUAL)) {
+            if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, VROUTER_OVERLAY_LEN))) {
+                vr_pfree(pkt, reason);
+                return 1;
+            }
         }
+        vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+        return 1;
+    } else if (pkt->vp_type == VP_TYPE_ARP) {
+        return vr_arp_input(vrf, pkt, fmd);
     }
-    vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
-    return 1;
+    return 0;
 }
 
 unsigned int
@@ -444,7 +429,17 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
 {
     int pull_len;
     int reason;
+    struct vr_interface *vif = pkt->vp_if;
 
+    if (IS_MAC_BMCAST(pkt_data(pkt)) &&
+        (vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
+        printk("pkt reached\n");
+        if (vr_l3_input(vrf, pkt, fmd))
+            return 1;
+    }
+
+    if (!(vif->vif_flags & VIF_FLAG_L2_ENABLED))
+        return 0;
 
     /* Even in L2 mode we will have to adjust the MSS for TCP*/
     if (pkt->vp_type == VP_TYPE_IP) {

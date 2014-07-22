@@ -691,20 +691,11 @@ static int
 vm_rx(struct vr_interface *vif, struct vr_packet *pkt,
       unsigned short vlan_id)
 {
-    struct vr_interface *sub_vif = NULL;
     struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
     struct vr_eth *eth = (struct vr_eth *)pkt_data(pkt);
 
     stats->vis_ibytes += pkt_len(pkt);
     stats->vis_ipackets++;
-
-    if (vlan_id != VLAN_ID_INVALID && vlan_id < VLAN_ID_MAX) {
-        if (vif->vif_sub_interfaces) {
-            sub_vif = vif->vif_sub_interfaces[vlan_id];
-            if (sub_vif)
-                return sub_vif->vif_rx(sub_vif, pkt, VLAN_ID_INVALID);
-        }
-    }
 
     return vr_virtual_input(vif->vif_vrf, vif, pkt, vlan_id);
 }
@@ -712,8 +703,9 @@ vm_rx(struct vr_interface *vif, struct vr_packet *pkt,
 
 static int
 eth_rx(struct vr_interface *vif, struct vr_packet *pkt,
-        unsigned short vlan_id __attribute__((unused)))
+        unsigned short vlan_id)
 {
+    struct vr_interface *sub_vif;
     struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
 
     stats->vis_ibytes += pkt_len(pkt);
@@ -729,6 +721,14 @@ eth_rx(struct vr_interface *vif, struct vr_packet *pkt,
      */
     if (vif_mode_xconnect(vif))
         pkt->vp_flags |= VP_FLAG_TO_ME;
+
+    if (vlan_id != VLAN_ID_INVALID && vlan_id < VLAN_ID_MAX) {
+        if (vif->vif_sub_interfaces) {
+            sub_vif = vif->vif_sub_interfaces[vlan_id];
+            if (sub_vif)
+                return sub_vif->vif_rx(sub_vif, pkt, VLAN_ID_INVALID);
+        }
+    }
 
     return vr_fabric_input(vif, pkt, vlan_id);
 }
