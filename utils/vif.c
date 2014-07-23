@@ -52,9 +52,9 @@ static short vlan_id = -1;
 static int vr_ifflags;
 
 static int add_set, create_set, get_set, list_set;
-static int kindex_set, type_set, help_set, set_set, vlan_set;
-static int vrf_set, mac_set, delete_set, mode_set, policy_set;
-static int xconnect_set;
+static int kindex_set, type_set, help_set, set_set, vlan_set, dhcp_set;
+static int vrf_set, mac_set, delete_set, policy_set;
+static int xconnect_set, vhost_phys_set;
 
 static unsigned int vr_op, vr_if_type;
 static bool ignore_error = false, dump_pending = false;
@@ -105,6 +105,9 @@ vr_get_if_type(char *type_str)
     else if (!strncmp(type_str, PHYSICAL_TYPE_STRING,
                 strlen(PHYSICAL_TYPE_STRING)))
         return VIF_TYPE_PHYSICAL;
+    else if (!strncmp(type_str, VIRTUAL_VLAN_TYPE_STRING,
+                strlen(VIRTUAL_VLAN_TYPE_STRING)))
+        return VIF_TYPE_VIRTUAL_VLAN;
     else if (!strncmp(type_str, VIRTUAL_TYPE_STRING,
                 strlen(VIRTUAL_TYPE_STRING)))
         return VIF_TYPE_VIRTUAL;
@@ -117,9 +120,6 @@ vr_get_if_type(char *type_str)
     else if (!strncmp(type_str, STATS_TYPE_STRING,
                 strlen(STATS_TYPE_STRING)))
         return VIF_TYPE_STATS;
-    else if (!strncmp(type_str, VIRTUAL_VLAN_TYPE_STRING,
-                strlen(VIRTUAL_VLAN_TYPE_STRING)))
-        return VIF_TYPE_VIRTUAL_VLAN;
     else
         Usage();
 
@@ -146,6 +146,8 @@ vr_if_flags(int flags)
         strcat(flag_string, "L3");
     if (flags & VIF_FLAG_L2_ENABLED)
         strcat(flag_string, "L2");
+    if (flags & VIF_FLAG_DHCP_ENABLED)
+        strcat(flag_string, "D");
 
 
     return flag_string;
@@ -185,8 +187,12 @@ vr_interface_req_process(void *s)
     if (!get_set && !list_set)
         return;
 
-    printf("vif%d/%d\tOS: %s", req->vifr_rid, req->vifr_idx,
-            req->vifr_os_idx ? if_indextoname(req->vifr_os_idx, name): "NULL");
+
+    printed = printf("vif%d/%d", req->vifr_rid, req->vifr_idx);
+    for (; printed < 12; printed++)
+        printf(" ");
+    printf("OS: %s", req->vifr_os_idx ?
+            if_indextoname(req->vifr_os_idx, name): "NULL");
 
     if (req->vifr_type == VIF_TYPE_PHYSICAL) {
         if (req->vifr_speed >= 0) {
@@ -196,7 +202,10 @@ vr_interface_req_process(void *s)
             printf(")");
         }
     } else if (req->vifr_type == VIF_TYPE_VIRTUAL_VLAN) {
-        printf(" Vlan Id: %d", req->vifr_vlan_id);
+        printf(" Vlan(,S): %d", req->vifr_vlan_id);
+        if (req->vifr_src_mac_size && req->vifr_src_mac)
+            printf(", "MAC_FORMAT, MAC_VALUE((uint8_t *)req->vifr_src_mac));
+        printf(" Bridge Index: %d", req->vifr_bridge_idx);
     }
 
     if (req->vifr_parent_vif_idx >= 0)
@@ -377,7 +386,6 @@ vr_intf_op(unsigned int op)
 
 op_retry:
     memset(&intf_req, 0 , sizeof(intf_req));
-    memset(if_name, 0, sizeof(if_name));
 
     if (set_set)
         intf_req.vifr_vrf = -1;
@@ -394,6 +402,8 @@ op_retry:
 
     switch (op) {
     case SANDESH_OP_ADD:
+        if (if_kindex < 0)
+            if_kindex = 0;
         intf_req.vifr_os_idx = if_kindex;
         if (vr_ifindex < 0)
             vr_ifindex = if_kindex;
@@ -403,6 +413,7 @@ op_retry:
         if (vr_if_type == VIF_TYPE_HOST)
             intf_req.vifr_cross_connect_idx = if_xconnect_kindex;
         intf_req.vifr_flags = vr_ifflags;
+
         break;
 
     case SANDESH_OP_DELETE:
@@ -452,7 +463,7 @@ Usage()
     printf("\t   [--add <intf_name> --mac <mac> --vrf <vrf>\n");
     printf("\t   \t--type [vhost|agent|physical|virtual]\n");
     printf("\t   \t--xconnect <physical interface name>\n");
-    printf( "[--policy, --mode <mode:x>]]\n");
+    printf( "[--policy, --vhost-phys, --dhcp-enable]]\n");
     printf("\t   [--delete <intf_id>]\n");
     printf("\t   [--get <intf_id>][--kernel]\n");
     printf("\t   [--set <intf_id> --vlan <vlan_id> --vrf <vrf_id>]\n");
@@ -471,32 +482,36 @@ enum if_opt_index {
     VRF_OPT_INDEX,
     MAC_OPT_INDEX,
     DELETE_OPT_INDEX,
-    MODE_OPT_INDEX,
     POLICY_OPT_INDEX,
     KINDEX_OPT_INDEX,
     TYPE_OPT_INDEX,
     SET_OPT_INDEX,
     VLAN_OPT_INDEX,
     XCONNECT_OPT_INDEX,
+    DHCP_OPT_INDEX,
+    VHOST_PHYS_OPT_INDEX,
     HELP_OPT_INDEX,
+    MAX_OPT_INDEX
 };
 
 static struct option long_options[] = {
-    [ADD_OPT_INDEX]     =   {"add",     required_argument,  &add_set,       1},
-    [CREATE_OPT_INDEX]  =   {"create",  required_argument,  &create_set,    1},
-    [GET_OPT_INDEX]     =   {"get",     required_argument,  &get_set,       1},
-    [LIST_OPT_INDEX]    =   {"list",    no_argument,        &list_set,      1},
-    [VRF_OPT_INDEX]     =   {"vrf",     required_argument,  &vrf_set,       1},
-    [MAC_OPT_INDEX]     =   {"mac",     required_argument,  &mac_set,       1},
-    [DELETE_OPT_INDEX]  =   {"delete",  required_argument,  &delete_set,    1},
-    [MODE_OPT_INDEX]    =   {"mode",    required_argument,  &mode_set,      1},
-    [POLICY_OPT_INDEX]  =   {"policy",  no_argument,        &policy_set,    1},
-    [KINDEX_OPT_INDEX]  =   {"kernel",  no_argument,        &kindex_set,    1},
-    [TYPE_OPT_INDEX]    =   {"type",    required_argument,  &type_set,      1},
-    [SET_OPT_INDEX]     =   {"set",     required_argument,  &set_set,       1},
-    [VLAN_OPT_INDEX]    =   {"vlan",    required_argument,  &vlan_set,      1},
-    [XCONNECT_OPT_INDEX] =  {"xconnect", required_argument, &xconnect_set,  1},
-    [HELP_OPT_INDEX]    =   {"help",    no_argument,        &help_set,      1},
+    [ADD_OPT_INDEX]         =   {"add",         required_argument,  &add_set,           1},
+    [CREATE_OPT_INDEX]      =   {"create",      required_argument,  &create_set,        1},
+    [GET_OPT_INDEX]         =   {"get",         required_argument,  &get_set,           1},
+    [LIST_OPT_INDEX]        =   {"list",        no_argument,        &list_set,          1},
+    [VRF_OPT_INDEX]         =   {"vrf",         required_argument,  &vrf_set,           1},
+    [MAC_OPT_INDEX]         =   {"mac",         required_argument,  &mac_set,           1},
+    [DELETE_OPT_INDEX]      =   {"delete",      required_argument,  &delete_set,        1},
+    [POLICY_OPT_INDEX]      =   {"policy",      no_argument,        &policy_set,        1},
+    [KINDEX_OPT_INDEX]      =   {"kernel",      no_argument,        &kindex_set,        1},
+    [TYPE_OPT_INDEX]        =   {"type",        required_argument,  &type_set,          1},
+    [SET_OPT_INDEX]         =   {"set",         required_argument,  &set_set,           1},
+    [VLAN_OPT_INDEX]        =   {"vlan",        required_argument,  &vlan_set,          1},
+    [VHOST_PHYS_OPT_INDEX]  =   {"vhost-phys",  no_argument,        &vhost_phys_set,    1},
+    [XCONNECT_OPT_INDEX]    =   {"xconnect",    required_argument,  &xconnect_set,      1},
+    [DHCP_OPT_INDEX]        =   {"dhcp-enable", no_argument,        &dhcp_set,          1},
+    [HELP_OPT_INDEX]        =   {"help",        no_argument,        &help_set,          1},
+    [MAX_OPT_INDEX]         =   { NULL,         0,                  NULL,               0},
 };
 
 static void
@@ -544,11 +559,6 @@ parse_long_opts(int option_index, char *opt_arg)
             Usage();
         break;
 
-    case MODE_OPT_INDEX:
-        if (opt_arg[0] == 'x')
-            vr_ifflags |= VIF_FLAG_XCONNECT;
-        break;
-
     case POLICY_OPT_INDEX:
         vr_ifflags |= VIF_FLAG_POLICY_ENABLED;
         break;
@@ -587,6 +597,14 @@ parse_long_opts(int option_index, char *opt_arg)
 
         break;
 
+    case DHCP_OPT_INDEX:
+        vr_ifflags |= VIF_FLAG_DHCP_ENABLED;
+        break;
+
+    case VHOST_PHYS_OPT_INDEX:
+        vr_ifflags |= VIF_FLAG_VHOST_PHYS;
+        break;
+
     default:
         break;
     }
@@ -600,8 +618,10 @@ validate_options(void)
     unsigned int sum_opt = 0, i;
 
     for (i = 0; i < (sizeof(long_options) / sizeof(long_options[0]));
-                i++)
-        sum_opt += *(long_options[i].flag);
+                i++) {
+        if (long_options[i].flag)
+            sum_opt += *(long_options[i].flag);
+    }
 
     if (!sum_opt || help_set)
         Usage();

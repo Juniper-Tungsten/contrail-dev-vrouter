@@ -75,6 +75,8 @@ buffer sandesh vr_interface_req {
    25: i32          vifr_parent_vif_idx;
    26: i16          vifr_nh_id;
    27: i32          vifr_cross_connect_idx;
+   28:  list<byte>  vifr_src_mac;
+   29: i32          vifr_bridge_idx;
 }
 
 buffer sandesh vr_vxlan_req {
