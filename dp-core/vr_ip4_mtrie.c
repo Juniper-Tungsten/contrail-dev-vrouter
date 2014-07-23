@@ -204,7 +204,6 @@ add_to_tree(struct ip_bucket_entry *ent, int level, struct vr_route_req *rt)
     struct ip_bucket      *bkt;
     struct mtrie_bkt_info *ip_bkt_info;
 
-    
     if (level >= (ip_bkt_get_max_level(rt->rtr_req.rtr_family) - 1))
         /* assert here ? */
         return;
@@ -297,8 +296,8 @@ mtrie_reset_entry(struct ip_bucket_entry *ent, int level,
 static int
 __mtrie_add(struct ip_mtrie *mtrie, struct vr_route_req *rt)
 {
-    int                         ret, index, level, err_level = 0;
-    unsigned char                i, fin;
+    int                         ret, index = 0, level, err_level = 0;
+    unsigned char                i, fin = 0;
     struct ip_bucket          *bkt;
     struct ip_bucket_entry    *ent, *err_ent = NULL;
     struct vr_nexthop          *nh, *err_nh = NULL;
@@ -343,15 +342,10 @@ __mtrie_add(struct ip_mtrie *mtrie, struct vr_route_req *rt)
                         (ip_bkt_info[level].bi_pfx_len - ip_bkt_info[level].bi_bits)) &&
                     (rt->rtr_req.rtr_prefix_len <= ip_bkt_info[level].bi_pfx_len)) {
                 fin = 1 << (ip_bkt_info[level].bi_pfx_len - rt->rtr_req.rtr_prefix_len); 
-            } else {
-                fin = ip_bkt_info[level].bi_size;
             }
 
-             fin += index;
-             if (fin > ip_bkt_info[level].bi_size)
-                 fin = ip_bkt_info[level].bi_size;
 
-             for (i = index; i < fin; i++) {
+             for (i = index; i <= (ip_bkt_info[level].bi_size-1); i++) {
                 ent = index_to_entry(bkt, i);
                 if (ENTRY_IS_BUCKET(ent))
                     add_to_tree(ent, level, rt);
@@ -362,6 +356,18 @@ __mtrie_add(struct ip_mtrie *mtrie, struct vr_route_req *rt)
                     ent->entry_label_flags = rt->rtr_req.rtr_label_flags;
                     ent->entry_label = rt->rtr_req.rtr_label;
                 }
+                if (fin) {
+                    /* Repeat the loop 'fin' times only */
+                    fin--;
+                    if (fin == 0)
+                        break;
+                } 
+                /* 
+                 * Bailout at the last index, 
+                 * the below check takes care of overflow 
+                 */
+                if (i == (ip_bkt_info[level].bi_size-1))
+                    break;
              }
 
              break;
