@@ -482,7 +482,11 @@ vr_route_flags(unsigned int vrf, unsigned int ip)
     struct vr_route_req rt;
 
     rt.rtr_req.rtr_vrf_id = vrf;
-    rt.rtr_req.rtr_prefix = ntohl(ip);
+    rt.rtr_req.rtr_prefix = vr_zalloc(4);
+    if (!rt.rtr_req.rtr_prefix)
+         return false;
+
+    *(uint32_t*)rt.rtr_req.rtr_prefix = (ip);
     rt.rtr_req.rtr_prefix_len = 32;
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_label_flags = 0;
@@ -497,6 +501,8 @@ vr_should_proxy(struct vr_interface *vif, unsigned int dip,
         unsigned int sip)
 {
     unsigned int rt_flags;
+    struct vr_route_req rt;
+    struct vr_nexthop *nh;
 
     /*
      * vr should proxy for all arp requests from VM and from
