@@ -1211,6 +1211,10 @@ nh_output(unsigned short vrf, struct vr_packet *pkt,
                 need_flow_lookup = true;
             } else {
                 ip = (struct vr_ip *)pkt_network_header(pkt);
+                if (vr_ip_is_ip6(ip)) {
+                    pkt->vp_type = VP_TYPE_IP6;
+                    return vr_flow_forward(vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+                }
                 src_nh = vr_inet_src_lookup(vrf, ip, pkt);
                 if (src_nh && src_nh->nh_type == NH_COMPOSITE &&
                         src_nh->nh_flags & NH_FLAG_COMPOSITE_ECMP) {

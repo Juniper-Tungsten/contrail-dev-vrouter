@@ -102,13 +102,13 @@ vr_route_req_process(void *s_req)
         rt_req.rtr_marker = calloc(1, 16);
         rt_req.rtr_src    = calloc(1, 16);
     }
-    rt_req.rtr_prefix_len = rt_req.rtr_marker_plen = rt_req.rtr_src_size = 0;
+    rt_req.rtr_prefix_size = rt_req.rtr_marker_size = rt_req.rtr_src_size = 0;
 
 
-    if (rt->rtr_prefix_len) {
+    if (rt->rtr_prefix_size) {
         memcpy(rt_req.rtr_prefix, rt->rtr_prefix, RT_IP_ADDR_SIZE(rt->rtr_family));
         memcpy(rt_req.rtr_marker, rt->rtr_prefix, RT_IP_ADDR_SIZE(rt->rtr_family));
-        rt_req.rtr_prefix_len = rt_req.rtr_marker_plen = RT_IP_ADDR_SIZE(rt->rtr_family);
+        rt_req.rtr_prefix_size = rt_req.rtr_marker_size = RT_IP_ADDR_SIZE(rt->rtr_family);
     } else {
         memset(rt_req.rtr_prefix, 0, 16);
         memset(rt_req.rtr_marker, 0, 16);
@@ -136,7 +136,7 @@ vr_route_req_process(void *s_req)
         (rt->rtr_family == AF_INET6)) {
         if (rt->rtr_rt_type == RT_UCAST) {
             
-            if (rt->rtr_prefix_len) {
+            if (rt->rtr_prefix_size) {
                 inet_ntop(rt->rtr_family, rt->rtr_prefix, addr, 16);
                 ret = printf("%s/%-2d", addr, rt->rtr_prefix_len);
             }
@@ -174,7 +174,7 @@ vr_route_req_process(void *s_req)
             if (rt->rtr_src_size)
                 inet_ntop(rt->rtr_family, rt->rtr_src, addr, 16);
             ret = printf("%s,", addr);
-            if (rt->rtr_prefix_len)
+            if (rt->rtr_prefix_size)
                 inet_ntop(rt->rtr_family, rt->rtr_prefix, addr, 16);
             ret += printf("%s", addr);
             for (i = ret; i < 33; i++)
@@ -227,14 +227,14 @@ vr_build_route_request(unsigned int op, int family, int8_t *prefix,
         rt_req.rtr_marker = calloc(1, 16);
         rt_req.rtr_src    = calloc(1, 16);
     }
-    rt_req.rtr_prefix_len = rt_req.rtr_marker_plen = rt_req.rtr_src_size = 0;
+    rt_req.rtr_prefix_size = rt_req.rtr_marker_size = rt_req.rtr_src_size = 0;
 
     switch (rt_req.h_op) {
     case SANDESH_OP_DUMP:
         if (prefix) {
             memcpy(rt_req.rtr_prefix, prefix, RT_IP_ADDR_SIZE(family));
             memcpy(rt_req.rtr_marker, prefix, RT_IP_ADDR_SIZE(family));
-            rt_req.rtr_marker_plen = rt_req.rtr_prefix_len = RT_IP_ADDR_SIZE(family);
+            rt_req.rtr_marker_size = rt_req.rtr_prefix_size = RT_IP_ADDR_SIZE(family);
         } else {
             memset(rt_req.rtr_prefix, 0, 16);
             memset(rt_req.rtr_marker, 0, 16);
@@ -260,7 +260,7 @@ vr_build_route_request(unsigned int op, int family, int8_t *prefix,
         rt_req.rtr_nh_id = nh_id;
         if (prefix) {
             memcpy(rt_req.rtr_prefix, prefix, RT_IP_ADDR_SIZE(family));
-            rt_req.rtr_prefix_len = RT_IP_ADDR_SIZE(family);
+            rt_req.rtr_prefix_size = RT_IP_ADDR_SIZE(family);
 
             inet_ntop(family, rt_req.rtr_prefix, buf, sizeof(buf));
             printf ("Adding prefix %s \n Prefix: ", buf);
