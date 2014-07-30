@@ -24,6 +24,7 @@
 #define VR_IP_PROTO_TCP         6
 #define VR_IP_PROTO_UDP         17
 #define	VR_IP_PROTO_GRE         47
+#define VR_IP_PROTO_ICMP6       58
 #define VR_GRE_FLAG_CSUM        (ntohs(0x8000))
 #define VR_GRE_FLAG_KEY         (ntohs(0x2000)) 
 
@@ -349,6 +350,9 @@ vr_ip_fragment_tail(struct vr_ip *iph)
     bool more = (frag & VR_IP_MF) ? true : false;
     unsigned short offset = frag & VR_IP_FRAG_OFFSET_MASK;
 
+    if (vr_ip_is_ip6(iph))
+        return false;
+
     if (!more && offset)
         return true;
 
@@ -373,6 +377,9 @@ vr_ip_fragment_head(struct vr_ip *iph)
     bool more = (frag & VR_IP_MF) ? true : false;
     unsigned short offset = frag & VR_IP_FRAG_OFFSET_MASK;
 
+    if (vr_ip_is_ip6(iph))
+        return false;
+
     if (more && !offset)
         return true;
 
@@ -386,6 +393,9 @@ vr_ip_fragment(struct vr_ip *iph)
     bool more = (frag & VR_IP_MF) ? true : false;
     unsigned short offset = frag & VR_IP_FRAG_OFFSET_MASK;
 
+    if (vr_ip_is_ip6(iph))
+        return false;
+
     if (offset || more)
         return true;
 
@@ -397,6 +407,9 @@ vr_ip_transport_header_valid(struct vr_ip *iph)
 {
     unsigned short frag = ntohs(iph->ip_frag_off);
     unsigned short offset = frag & VR_IP_FRAG_OFFSET_MASK;
+
+    if (vr_ip_is_ip6(iph))
+        return true;
 
     if (offset)
         return false;

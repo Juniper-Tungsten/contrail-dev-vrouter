@@ -1213,6 +1213,7 @@ nh_output(unsigned short vrf, struct vr_packet *pkt,
                 ip = (struct vr_ip *)pkt_network_header(pkt);
                 if (vr_ip_is_ip6(ip)) {
                     pkt->vp_type = VP_TYPE_IP6;
+                    vr_printf ("Calling vr_flow_forward for inner packet \n");
                     return vr_flow_forward(vrf, pkt, VR_ETH_PROTO_IP6, fmd);
                 }
                 src_nh = vr_inet_src_lookup(vrf, ip, pkt);

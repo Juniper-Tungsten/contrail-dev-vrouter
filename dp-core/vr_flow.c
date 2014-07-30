@@ -189,6 +189,7 @@ vr_get_flow_key(struct vr_flow_key *key, uint16_t vlan, struct vr_packet *pkt,
     case VR_IP_PROTO_TCP:
     case VR_IP_PROTO_UDP:
     case VR_IP_PROTO_ICMP:
+    case VR_IP_PROTO_ICMP6:
         key->key_src_port = sport;
         key->key_dst_port = dport;
         break;
@@ -399,11 +400,17 @@ vr_flow_nat(unsigned short vrf, struct vr_flow_entry *fe, struct vr_packet *pkt,
     if (fe->fe_rflow < 0)
         goto drop;
 
+    ip = (struct vr_ip *)pkt_data(pkt);
+
+    if (vr_ip_is_ip6(ip)) {
+        /* No NAT support for IPv6 yet */
+        vr_pfree(pkt, VP_DROP_FLOW_ACTION_INVALID);
+        return 0;
+    }
+
     rfe = vr_get_flow_entry(router, fe->fe_rflow);
     if (!rfe)
         goto drop;
-
-    ip = (struct vr_ip *)pkt_data(pkt);
 
     if (ip->ip_proto == VR_IP_PROTO_ICMP) {
         icmph = (struct vr_icmp *)((unsigned char *)ip + (ip->ip_hl * 4));
@@ -787,6 +794,66 @@ vr_flow_parse(struct vrouter *router, struct vr_flow_key *key,
     return res;
 }
 
+
+unsigned int
+vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
+        struct vr_packet *pkt, unsigned short proto,
+        struct vr_forwarding_md *fmd)
+{
+    struct vr_ip6 *ip6;
+    unsigned int trap_res  = 0;
+    unsigned short *t_hdr, sport, dport;
+    struct vr_icmp *icmph;
+    
+    vr_printf("In %s \n", __FUNCTION__);
+
+    pkt->vp_type = VP_TYPE_IP6;
+    ip6 = (struct vr_ip6 *)pkt_network_header(pkt); 
+    t_hdr = (unsigned short *)((char *)ip6 + sizeof(struct vr_ip6));
+    switch (ip6->ip6_nxt) {
+    case VR_IP_PROTO_ICMP6: 
+        /* First word on ICMP and ICMPv6 are same */
+        icmph = (struct vr_icmp *)t_hdr;
+        switch (icmph->icmp_type) {
+        case 128: //Echo Request
+        case 129: //Echo Reply
+            vr_printf("ICMPv6 packet \n");
+            /* ICMPv6 Echo format is same as ICMP */
+            sport = icmph->icmp_eid;
+            dport = VR_ICMP_TYPE_ECHO_REPLY;
+            break;
+        case 135: //NDP Solicit
+            // break;
+        default:
+            sport = 0;
+            dport = icmph->icmp_type;
+        }
+        break;
+    case VR_IP_PROTO_UDP:
+        sport = *t_hdr;
+        dport = *(t_hdr + 1);
+        vr_printf("UDP packet Src:%d Dst %d\n", sport, dport);
+        
+        if (vif_is_virtual(pkt->vp_if)) {
+            if ((sport == VR_DHCP6_SPORT) && (dport == VR_DHCP6_DPORT)) {
+                vr_printf("DHCPv6 packet \n");
+                trap_res = AGENT_TRAP_L3_PROTOCOLS;
+                return vr_trap(pkt, vrf, trap_res, NULL);
+            }
+        }
+        break;
+    case VR_IP_PROTO_TCP:
+        sport = *t_hdr;
+        dport = *(t_hdr + 1);
+    default:
+        break;
+    }
+
+    /* Act as though flow lookup has already happenend */
+//    pkt->vp_flags |= VP_FLAG_FLOW_SET;
+
+    return vr_flow_forward(vrf, pkt, proto, fmd);
+}
 
 unsigned int
 vr_flow_inet_input(struct vrouter *router, unsigned short vrf,
