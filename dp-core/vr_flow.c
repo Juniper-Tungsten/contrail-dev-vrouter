@@ -794,6 +794,19 @@ vr_flow_parse(struct vrouter *router, struct vr_flow_key *key,
     return res;
 }
 
+#if 0
+struct vr_nexthop *vr_inet_src_lookup(unsigned short, struct vr_ip *, struct vr_packet *);
+
+static void
+print_data(const char* str, uint8_t* data, int len)
+{
+    int i;
+    vr_printf("%s \t", str);
+    for (i=0; i<len; i++)
+       vr_printf("%2x:", data[i]);
+    vr_printf("\n");
+}
+#endif
 
 unsigned int
 vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
@@ -801,12 +814,13 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
         struct vr_forwarding_md *fmd)
 {
     struct vr_ip6 *ip6;
+    struct vr_eth *eth;
     unsigned int trap_res  = 0;
     unsigned short *t_hdr, sport, dport;
     struct vr_icmp *icmph;
-    
-    vr_printf("In %s \n", __FUNCTION__);
-
+    unsigned char vr_mac[VR_ETHER_ALEN], *icmp_opt_ptr;
+//    struct vr_nexthop* nh;
+   
     pkt->vp_type = VP_TYPE_IP6;
     ip6 = (struct vr_ip6 *)pkt_network_header(pkt); 
     t_hdr = (unsigned short *)((char *)ip6 + sizeof(struct vr_ip6));
@@ -822,8 +836,62 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
             sport = icmph->icmp_eid;
             dport = VR_ICMP_TYPE_ECHO_REPLY;
             break;
-        case 135: //NDP Solicit
-            // break;
+        case 135: //Neighbor Solicit, respond with VRRP MAC
+             /* 
+              * Update IPv6 header  
+              * Copy the IP6 src to IP6 dst 
+              * Copy the target IP n ICMPv6 header as src IP of packet
+              * Do IP lookup to confirm if we can respond with 
+              * Neighbor advertisement
+              */
+             vr_printf("Neighbor Solicit request \n");
+//             print_data("Src IP", ip6->ip6_src, 16);
+//             print_data("Dst IP", ip6->ip6_dst, 16);
+
+             memcpy(ip6->ip6_dst, ip6->ip6_src, 16);
+             memcpy(ip6->ip6_src, &icmph->icmp_data, 16);
+
+//             vr_printf("Updated header \n");
+//             print_data("Src IP", ip6->ip6_src, 16);
+//             print_data("Dst IP", ip6->ip6_dst, 16);
+#if 0
+             nh = vr_inet_src_lookup(vrf, (struct vr_ip*)ip6, pkt);
+             if (!nh || (nh->nh_id ==0)) {
+                 /* No route for the requested IPv6 address */
+                 vr_pfree(pkt, VP_DROP_INVALID_ARP);
+                 return 0; 
+             }
+             vr_printf("Got NH %p ID %d \n", nh, nh->nh_id); 
+#endif
+             //TODO: Update checksum
+
+             /* Update ICMP header and options */
+             vr_mac[0] = 0x00;
+             vr_mac[1] = 0x00;
+             vr_mac[2] = 0x5E;
+             vr_mac[3] = 0x00;
+             vr_mac[4] = 0x01;
+             vr_mac[5] = 0x00;
+             icmph->icmp_type = 136; 
+             icmp_opt_ptr = ((char*)&icmph->icmp_data[0]) + 16;
+             *icmp_opt_ptr = 0x02; //Target-link-layer-address
+             memcpy(icmp_opt_ptr+2, vr_mac, VR_ETHER_ALEN);
+             //TODO: Update ICMP checksum
+//             print_data("Updated NA mac", icmp_opt_ptr+2, 6);
+             
+             /* Update Ethernet headr */
+             eth = (struct vr_eth*) ((char*)ip6 - 18);
+//             print_data("Original Dst mac", eth->eth_dmac, 6);
+//             print_data("Original Src mac", eth->eth_smac, 6);
+             memcpy(eth->eth_dmac, eth->eth_smac, VR_ETHER_ALEN);
+             memcpy(eth->eth_smac, vr_mac, VR_ETHER_ALEN);
+//             print_data("Updated Dst mac", eth->eth_dmac, 6);
+//             print_data("Updated Src mac", eth->eth_smac, 6);
+             
+             break;
+        case 133: //Router solicit, trap to agent
+             vr_printf("Router Solicit request \n");
+             return vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
         default:
             sport = 0;
             dport = icmph->icmp_type;
