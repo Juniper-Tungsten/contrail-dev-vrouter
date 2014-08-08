@@ -22,7 +22,7 @@ extern void vr_host_vif_init(struct vrouter *);
 extern unsigned int vr_l3_input(unsigned short, struct vr_packet *, 
                                               struct vr_forwarding_md *);
 extern unsigned int vr_l2_input(unsigned short, struct vr_packet *, 
-                                               struct vr_forwarding_md *, unsigned short);
+                                               struct vr_forwarding_md *);
 extern struct vr_interface *vif_bridge_get_sub_interface(vr_htable_t,
         unsigned short, unsigned char *);
 extern int vif_bridge_get_index(struct vr_interface *, struct vr_interface *);
