@@ -114,9 +114,9 @@ struct vr_interface {
     struct vr_interface_stats *vif_stats;
 
     unsigned short vif_vlan_id;
+    unsigned short vif_ovlan_id;
     unsigned short vif_nh_id;
     unsigned short vif_vrf_table_users;
-    uint8_t vif_mirror_id; /* best placed here for now - less space wasted */
     /*
      * unsigned short does not cut it, because initial value for
      * each entry in the table is -1. negative value of table
@@ -151,6 +151,7 @@ struct vr_interface {
     struct napi_struct vr_napi;
     struct sk_buff_head vr_skb_inputq;
 #endif
+    uint8_t vif_mirror_id; /* best placed here for now - less space wasted */
 };
 
 struct vr_interface_settings {

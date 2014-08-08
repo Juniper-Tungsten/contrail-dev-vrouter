@@ -202,7 +202,7 @@ vr_interface_req_process(void *s)
             printf(")");
         }
     } else if (req->vifr_type == VIF_TYPE_VIRTUAL_VLAN) {
-        printf(" Vlan(,S): %d", req->vifr_vlan_id);
+        printf(" Vlan(o/i)(,S): %d/%d", req->vifr_ovlan_id, req->vifr_vlan_id);
         if (req->vifr_src_mac_size && req->vifr_src_mac)
             printf(", "MAC_FORMAT, MAC_VALUE((uint8_t *)req->vifr_src_mac));
         printf(" Bridge Index: %d", req->vifr_bridge_idx);

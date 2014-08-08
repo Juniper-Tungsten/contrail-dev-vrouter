@@ -645,7 +645,8 @@ vlan_drv_add(struct vr_interface *vif, vr_interface_req *vifr)
     if ((unsigned int)(vifr->vifr_parent_vif_idx) > VR_MAX_INTERFACES)
         return -EINVAL;
 
-    if ((unsigned short)(vifr->vifr_vlan_id) >= VLAN_ID_MAX)
+    if (((unsigned short)(vifr->vifr_vlan_id) >= VLAN_ID_MAX) ||
+            ((unsigned short)(vifr->vifr_ovlan_id) >= VLAN_ID_MAX))
         return -EINVAL;
 
     if (vifr->vifr_src_mac_size && vifr->vifr_src_mac) {
@@ -666,6 +667,7 @@ vlan_drv_add(struct vr_interface *vif, vr_interface_req *vifr)
     vif->vif_tx = vlan_tx;
     vif->vif_rx = vlan_rx;
     vif->vif_vlan_id = vifr->vifr_vlan_id;
+    vif->vif_ovlan_id = vifr->vifr_ovlan_id;
 
     pvif = vrouter_get_interface(vifr->vifr_rid, vifr->vifr_parent_vif_idx);
     if (!pvif)
@@ -1436,8 +1438,10 @@ vr_interface_make_req(vr_interface_req *req, struct vr_interface *intf)
     else
         req->vifr_parent_vif_idx = -1;
 
-    if (intf->vif_type == VIF_TYPE_VIRTUAL_VLAN)
+    if (intf->vif_type == VIF_TYPE_VIRTUAL_VLAN) {
         req->vifr_vlan_id = intf->vif_vlan_id;
+        req->vifr_ovlan_id = intf->vif_ovlan_id;
+    }
 
     if (intf->vif_src_mac) {
         memcpy(req->vifr_src_mac, intf->vif_src_mac, VR_ETHER_ALEN);
