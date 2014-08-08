@@ -243,6 +243,14 @@ lh_pset_data(struct vr_packet *pkt, unsigned short offset)
     return;
 }
 
+static unsigned int
+lh_pgso_size(struct vr_packet *pkt)
+{
+    struct sk_buff *skb = vp_os_packet(pkt);
+
+    return skb_shinfo(skb)->gso_size;
+}
+
 static void
 lh_pfree(struct vr_packet *pkt, unsigned short reason)
 {
@@ -525,7 +533,7 @@ lh_get_udp_src_port(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
                     unsigned short vrf)
 {
     struct sk_buff *skb = vp_os_packet(pkt);
-    unsigned int pull_len;
+    int pull_len;
     __u32 ip_src, ip_dst, hashval, port_range;
     struct vr_ip *iph;
     __u32 *data;
@@ -576,12 +584,16 @@ lh_get_udp_src_port(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
         hashval = vr_hash_2words(hashval, vrf, vr_hashrnd);
     } else {
         /*
-         * Lets pull only if ip hdr is beyond this skb
+         * pull_len can be negative in the following calculation. This behavior
+         * will be true in case of mirroring. In mirroring, we do preset first
+         * which makes vp_data = skb->data, and then we push mirroring headers,
+         * which makes pull_len < 0 and thats why pull_len is an integer.
          */
         pull_len = sizeof(struct iphdr);
         pull_len += pkt->vp_data;
         pull_len -= skb_headroom(skb);
 
+        /* Lets pull only if ip hdr is beyond this skb */
         if ((pkt->vp_data + sizeof(struct iphdr)) > pkt->vp_tail) {
             /* We dont handle if tails are different */
 #ifdef NET_SKBUFF_DATA_USES_OFFSET
@@ -590,20 +602,25 @@ lh_get_udp_src_port(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
             if (pkt->vp_tail != (skb->tail - skb->head))
                 goto error;
 #endif
-            if (!pskb_may_pull(skb, pull_len)) {
+            /*
+             * pull_len has to be +ve here and hence additional check is not
+             * needed
+             */
+            if (!pskb_may_pull(skb, (unsigned int)pull_len)) {
                 goto error;
             }
         }
 
-        iph = (struct vr_ip *) (skb->head + pkt->vp_data);
+        iph = (struct vr_ip *)(skb->head + pkt->vp_data);
         if (vr_ip_transport_header_valid(iph)) {
             if ((iph->ip_proto == VR_IP_PROTO_TCP) ||
                     (iph->ip_proto == VR_IP_PROTO_UDP)) {
                 pull_len += ((iph->ip_hl * 4) - sizeof(struct vr_ip) + 4);
-                if (!pskb_may_pull(skb, pull_len)) {
+                if ((pull_len > 0) &&
+                        !pskb_may_pull(skb,(unsigned int)pull_len)) {
                     goto error;
                 }
-                iph = (struct vr_ip *) (skb->head + pkt->vp_data);
+                iph = (struct vr_ip *)(skb->head + pkt->vp_data);
                 l4_hdr = (__u16 *) (((char *) iph) + (iph->ip_hl * 4));
                 sport = *l4_hdr;
                 dport = *(l4_hdr+1);
@@ -946,8 +963,7 @@ vr_kunmap_atomic(void *va)
  * lh_pull_inner_headers_fast for UDP packets.
  */
 static int
-lh_pull_inner_headers_fast_udp(struct vr_ip *outer_iph,
-                               struct vr_packet *pkt, int
+lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
                                (*tunnel_type_cb)(unsigned int, unsigned
                                    int, unsigned short *), int *ret, 
                                int *encap_type)
@@ -966,6 +982,7 @@ lh_pull_inner_headers_fast_udp(struct vr_ip *outer_iph,
     unsigned int label, control_data;
     int pkt_type = 0;
     struct vr_eth *eth = NULL;
+    struct vr_ip *outer_iph = NULL;
     unsigned short eth_proto;
 
     pkt_headlen = pkt_head_len(pkt);
@@ -1156,6 +1173,7 @@ lh_pull_inner_headers_fast_udp(struct vr_ip *outer_iph,
             skb_pull_len = pkt_data(pkt) - skb->data;
 
             skb_pull(skb, skb_pull_len);
+            outer_iph = (struct vr_ip *)pkt_network_header(pkt);
             if (lh_csum_verify_udp(skb, outer_iph)) {
                 goto cksum_err;
             }
@@ -1599,7 +1617,7 @@ slow_path:
  * multicast
  */
 static int
-lh_pull_inner_headers_fast(struct vr_ip *iph, struct vr_packet *pkt,
+lh_pull_inner_headers_fast(struct vr_packet *pkt,
                            unsigned char proto, int
                            (*tunnel_type_cb)(unsigned int, unsigned int, 
                                                 unsigned short *),
@@ -1609,8 +1627,8 @@ lh_pull_inner_headers_fast(struct vr_ip *iph, struct vr_packet *pkt,
         return lh_pull_inner_headers_fast_gre(pkt, tunnel_type_cb, ret,
                 encap_type);
     } else if (proto == VR_IP_PROTO_UDP) {
-        return lh_pull_inner_headers_fast_udp(iph, pkt, tunnel_type_cb,
-                ret, encap_type);
+        return lh_pull_inner_headers_fast_udp(pkt, tunnel_type_cb, ret,
+                encap_type);
     }
 
     return 0;
@@ -1623,7 +1641,7 @@ lh_pull_inner_headers_fast(struct vr_ip *iph, struct vr_packet *pkt,
  * as required. 
  */
 static int
-lh_pull_inner_headers(struct vr_ip *outer_iph, struct vr_packet *pkt,
+lh_pull_inner_headers(struct vr_packet *pkt,
                       unsigned short ip_proto, unsigned short *reason,
                       int (*tunnel_type_cb)(unsigned int, unsigned int,
                           unsigned short *))
@@ -1639,6 +1657,7 @@ lh_pull_inner_headers(struct vr_ip *outer_iph, struct vr_packet *pkt,
     struct vr_eth *eth = NULL;
     unsigned short hdr_len, vrouter_overlay_len, eth_proto, udph_cksum = 0;
     struct udphdr *udph;
+    struct vr_ip *outer_iph = NULL;
     bool mpls_pkt = true;
 
     *reason = VP_DROP_PULL;
@@ -1849,6 +1868,7 @@ lh_pull_inner_headers(struct vr_ip *outer_iph, struct vr_packet *pkt,
           * guest verify the checksum.
           */
          if (!skb_csum_unnecessary(skb)) {
+             outer_iph = (struct vr_ip *)pkt_network_header(pkt);
              if (outer_iph && (outer_iph->ip_proto == VR_IP_PROTO_UDP) &&
                  udph_cksum) {
                  skb_pull_len = pkt_data(pkt) - skb->data;
@@ -2019,6 +2039,7 @@ struct host_os linux_host = {
     .hos_pfrag_len                  =       lh_pfrag_len,
     .hos_phead_len                  =       lh_phead_len,
     .hos_pset_data                  =       lh_pset_data,  
+    .hos_pgso_size                  =       lh_pgso_size,
 
     .hos_get_cpu                    =       lh_get_cpu,
     .hos_schedule_work              =       lh_schedule_work,

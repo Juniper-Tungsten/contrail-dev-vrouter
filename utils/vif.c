@@ -187,12 +187,11 @@ vr_interface_req_process(void *s)
     if (!get_set && !list_set)
         return;
 
-
     printed = printf("vif%d/%d", req->vifr_rid, req->vifr_idx);
     for (; printed < 12; printed++)
         printf(" ");
     printf("OS: %s", req->vifr_os_idx ?
-            if_indextoname(req->vifr_os_idx, name): "NULL");
+        if_indextoname(req->vifr_os_idx, name): "NULL");
 
     if (req->vifr_type == VIF_TYPE_PHYSICAL) {
         if (req->vifr_speed >= 0) {

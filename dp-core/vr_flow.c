@@ -537,6 +537,7 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
         if (valid_src == NH_SOURCE_MISMATCH) {
             pkt_clone = vr_pclone(pkt);
             if (pkt_clone) {
+                vr_preset(pkt_clone);
                 if (vr_pcow(pkt_clone, sizeof(struct vr_eth) +
                             sizeof(struct agent_hdr))) {
                     vr_pfree(pkt_clone, VP_DROP_PCOW_FAIL);
@@ -1213,6 +1214,8 @@ vr_flow_set(struct vrouter *router, vr_flow_req *req)
     fe->fe_ecmp_nh_index = req->fr_ecmp_nh_index;
     fe->fe_src_nh_index = req->fr_src_nh_index;
     fe->fe_action = req->fr_action;
+    if (fe->fe_action == VR_FLOW_ACTION_DROP)
+        fe->fe_drop_reason = (uint8_t)req->fr_drop_reason;
     fe->fe_flags = req->fr_flags; 
 
 
