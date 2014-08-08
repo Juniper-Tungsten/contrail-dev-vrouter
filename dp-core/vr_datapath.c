@@ -96,10 +96,10 @@ vr_handle_arp_request(struct vrouter *router, unsigned short vrf,
         memcpy(eth->eth_smac, vif->vif_mac, VR_ETHER_ALEN);
         eth_proto = &eth->eth_proto;
         if (vif_is_vlan(vif)) {
-            if (vif->vif_vlan_id) {
+            if (vif->vif_ovlan_id) {
                 *eth_proto = htons(VR_ETH_PROTO_VLAN);
                 eth_proto++;
-                *eth_proto = htons(vif->vif_vlan_id);
+                *eth_proto = htons(vif->vif_ovlan_id);
                 eth_proto++;
                 pull_tail_len += sizeof(struct vr_vlan_hdr);
             }
