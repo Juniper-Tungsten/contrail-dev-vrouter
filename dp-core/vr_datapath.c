@@ -10,19 +10,6 @@
 extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
                 struct vr_route_req *, struct vr_packet *);
 
-extern unsigned int vr_route_flags(unsigned int, unsigned int);
-
-static inline bool
-well_known_mac(unsigned char *dmac)
-{
-    if (!memcmp(&dmac[VR_ETHER_PROTO_MAC_OFF], vr_well_known_mac_infix,
-                            VR_ETHER_PROTO_MAC_LEN)) 
-        if (!*dmac || (*dmac == 0x1))
-            return true;
-
-    return false;
-}
-
 static inline bool
 vr_grat_arp(struct vr_arp *sarp)
 {
@@ -205,7 +192,6 @@ static int
 vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
                     struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
-    unsigned int rt_flags;
     struct vr_interface *vif = pkt->vp_if;
     struct vr_packet *cloned_pkt;
 
@@ -213,15 +199,6 @@ vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
         return vif_xconnect(vif, pkt);
 
     if (vif->vif_type != VIF_TYPE_PHYSICAL) {
-        if (vif->vif_type == VIF_TYPE_VIRTUAL) {
-            rt_flags = vr_route_flags(vif->vif_vrf, sarp->arp_dpa);
-            if (rt_flags & VR_RT_ARP_TRAP_FLAG) {
-                vr_preset(pkt);
-                return vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
-            }
-        }
-
-        /* ...else, just drop */
         vr_pfree(pkt, VP_DROP_INVALID_IF);
         return 0;
     }
@@ -482,7 +459,6 @@ vr_trap_l3_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
                               struct vr_forwarding_md *fmd)
 {
     unsigned char *data = pkt_data(pkt);
-    struct vr_interface *vif = pkt->vp_if;
     struct vr_ip *iph;
     struct vr_udp *udph;
     unsigned char *l3_hdr;
@@ -521,5 +497,4 @@ vr_trap_l2_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
     }
 
     return 0;
->>>>>>> IRB - Rx routine changes
 }

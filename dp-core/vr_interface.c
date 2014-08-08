@@ -21,10 +21,6 @@ static int eth_rx(struct vr_interface *, struct vr_packet *, unsigned short);
 extern struct vr_host_interface_ops *vr_host_interface_init(void);
 extern void  vr_host_interface_exit(void);
 extern void vr_host_vif_init(struct vrouter *);
-extern unsigned int vr_l3_input(unsigned short, struct vr_packet *, 
-                                              struct vr_forwarding_md *);
-extern unsigned int vr_l2_input(unsigned short, struct vr_packet *, 
-                                               struct vr_forwarding_md *);
 extern struct vr_interface *vif_bridge_get_sub_interface(vr_htable_t,
         unsigned short, unsigned char *);
 extern int vif_bridge_get_index(struct vr_interface *, struct vr_interface *);
@@ -692,7 +688,6 @@ vm_rx(struct vr_interface *vif, struct vr_packet *pkt,
       unsigned short vlan_id)
 {
     struct vr_interface_stats *stats = vif_get_stats(vif, pkt->vp_cpu);
-    struct vr_eth *eth = (struct vr_eth *)pkt_data(pkt);
 
     stats->vis_ibytes += pkt_len(pkt);
     stats->vis_ipackets++;
