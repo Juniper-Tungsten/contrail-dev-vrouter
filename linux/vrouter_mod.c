@@ -983,7 +983,6 @@ lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
     int pkt_type = 0;
     struct vr_eth *eth = NULL;
     struct vr_ip *outer_iph = NULL;
-    unsigned short eth_proto;
 
     pkt_headlen = pkt_head_len(pkt);
     hdr_len = sizeof(struct udphdr);
@@ -1657,7 +1656,6 @@ lh_pull_inner_headers(struct vr_packet *pkt,
     unsigned short hdr_len, vrouter_overlay_len, eth_proto, udph_cksum = 0;
     struct udphdr *udph;
     struct vr_ip *outer_iph = NULL;
-    bool mpls_pkt = true;
 
     *reason = VP_DROP_PULL;
     pull_len = 0;

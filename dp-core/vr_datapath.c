@@ -118,6 +118,8 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
     struct vr_interface *vif = pkt->vp_if;
     unsigned short proto = htons(VR_ETH_PROTO_ARP);
     struct vr_eth *eth;
+    unsigned short *eth_proto;
+    unsigned short pull_tail_len = VR_ETHER_HLEN;
     struct vr_arp *arp;
     unsigned int dpa;
     int arp_result;
