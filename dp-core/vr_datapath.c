@@ -275,7 +275,7 @@ vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
         vr_pfree(pkt, VP_DROP_INVALID_ARP);
     }
 
-    return 0;
+    return 1;
 }
 
 int
@@ -412,7 +412,6 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
 
     if (IS_MAC_BMCAST(pkt_data(pkt)) &&
         (vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
-        printk("pkt reached\n");
         if (vr_l3_input(vrf, pkt, fmd))
             return 1;
     }
