@@ -412,8 +412,9 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
 
     if (IS_MAC_BMCAST(pkt_data(pkt)) &&
         (vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
-        if (vr_l3_input(vrf, pkt, fmd))
-            return 1;
+        if (pkt->vp_type == VP_TYPE_ARP || vr_l3_well_known_packet(vrf, pkt))
+            if (vr_l3_input(vrf, pkt, fmd))
+                return 1;
     }
 
     if (!(vif->vif_flags & VIF_FLAG_L2_ENABLED))
@@ -455,19 +456,13 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
     return 1;
 }
 
-int
-vr_trap_l3_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
-                              struct vr_forwarding_md *fmd)
+bool
+vr_l3_well_known_packet(unsigned short vrf, struct vr_packet *pkt)
 {
     unsigned char *data = pkt_data(pkt);
     struct vr_ip *iph;
     struct vr_udp *udph;
     unsigned char *l3_hdr;
-
-    if (!pkt_get_network_header_off(pkt)) {
-        vr_pfree(pkt, VP_DROP_INVALID_PACKET);
-        return 1;
-    }
 
     l3_hdr = pkt_network_header(pkt);
     if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL && IS_MAC_BMCAST(data)) {
@@ -476,14 +471,13 @@ vr_trap_l3_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
                               vr_ip_transport_header_valid(iph)) {
             udph = (struct vr_udp *)(l3_hdr + iph->ip_hl * 4);
             if (udph->udp_sport == htons(68)) {
-                vr_trap(pkt, vrf,  AGENT_TRAP_L3_PROTOCOLS, NULL);
-                return 0;
+                return true;
             }
 
         }
     }
 
-    return 0;
+    return false;
 }
 
 int

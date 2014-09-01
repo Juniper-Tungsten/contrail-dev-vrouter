@@ -1040,6 +1040,7 @@ lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
             /* L3 packet */
             iph = (struct vr_ip *) (va + pull_len + VR_MPLS_HDR_LEN);
             pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_ip);
+            pkt->vp_type = VP_TYPE_IP;
         } else if (pkt_type == PKT_MPLS_TUNNEL_L2_MCAST) {
             /* L2 Multicast packet with control information and 
              * Vxlan header. Vxlan header contains IP + UDP + Vxlan */
@@ -1047,10 +1048,12 @@ lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
                     VR_L2_MCAST_CTRL_DATA_LEN + VR_VXLAN_HDR_LEN);
             pull_len += VR_MPLS_HDR_LEN + VR_L2_MCAST_CTRL_DATA_LEN +
                             VR_VXLAN_HDR_LEN + sizeof(struct vr_eth);
+            pkt->vp_type = VP_TYPE_L2;
         } else if (pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) {
             /* L2 packet with no control information */
             eth = (struct vr_eth *)(va + pull_len + VR_MPLS_HDR_LEN);
             pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_eth);
+            pkt->vp_type = VP_TYPE_L2;
         } else {
             goto unhandled;
         }
@@ -1405,6 +1408,7 @@ lh_pull_inner_headers_fast_gre(struct vr_packet *pkt, int
         /* L3 packet */
         iph = (struct vr_ip *) (va + pull_len + VR_MPLS_HDR_LEN);
         pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_ip);
+        pkt->vp_type = VP_TYPE_IP;
     } else if (pkt_type == PKT_MPLS_TUNNEL_L2_MCAST) {
         /* L2 Multicast packet with control information and 
          * Vxlan header. Vxlan header contains IP + UDP + Vxlan */
@@ -1412,10 +1416,12 @@ lh_pull_inner_headers_fast_gre(struct vr_packet *pkt, int
         eth = (struct vr_eth *)(va + pull_len + VR_MPLS_HDR_LEN + l2_len);
 
         pull_len += VR_MPLS_HDR_LEN + l2_len + sizeof(struct vr_eth);
+        pkt->vp_type = VP_TYPE_L2;
     } else if (pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) {
         /* L2 packet with no control information */
         eth = (struct vr_eth *)(va + pull_len + VR_MPLS_HDR_LEN);
         pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_eth);
+        pkt->vp_type = VP_TYPE_L2;
     } else {
         goto unhandled;
     }
@@ -1727,7 +1733,7 @@ lh_pull_inner_headers(struct vr_packet *pkt,
             hoff = pkt->vp_data + hdr_len + VR_MPLS_HDR_LEN;
             iph = (struct vr_ip *) (skb->head + hoff);
             vrouter_overlay_len = VROUTER_OVERLAY_LEN;
-
+            pkt->vp_type = VP_TYPE_IP;
         } else if (ret == PKT_MPLS_TUNNEL_L2_MCAST) {
 
             /* L2 Multicast packet */
@@ -1737,6 +1743,7 @@ lh_pull_inner_headers(struct vr_packet *pkt,
 
             hoff += VR_L2_MCAST_CTRL_DATA_LEN + VR_VXLAN_HDR_LEN;
             eth = (struct vr_eth *) (skb->head + hoff);
+            pkt->vp_type = VP_TYPE_L2;
 
         } else if (ret == PKT_MPLS_TUNNEL_L2_UCAST) {
 
@@ -1747,6 +1754,7 @@ lh_pull_inner_headers(struct vr_packet *pkt,
                 goto error;
 
             eth = (struct vr_eth *) (skb->head + hoff);
+            pkt->vp_type = VP_TYPE_L2;
 
         } else {
             *reason = VP_DROP_MISC;
