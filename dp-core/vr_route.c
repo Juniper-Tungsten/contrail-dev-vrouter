@@ -46,16 +46,29 @@ vr_route_delete(vr_route_req *req)
         ret = -ENOENT;
     else {
         vr_req.rtr_req = *req;
-        if (!req->rtr_prefix_size) {
-            return -ENOENT;
+
+        if (req->rtr_family != AF_BRIDGE && !req->rtr_prefix_size) {
+            ret = -EINVAL;
+            goto error;
         }
-        vr_req.rtr_req.rtr_prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
-        memcpy(vr_req.rtr_req.rtr_prefix, req->rtr_prefix, RT_IP_ADDR_SIZE(req->rtr_family));
+
+        if (req ->rtr_family == AF_BRIDGE && 
+                (!req->rtr_mac_size  || !req->rtr_mac)) {
+            ret = -EINVAL;
+            goto error;
+        }
+
+        if (req ->rtr_family != AF_BRIDGE) {
+            vr_req.rtr_req.rtr_prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
+            memcpy(vr_req.rtr_req.rtr_prefix, req->rtr_prefix, RT_IP_ADDR_SIZE(req->rtr_family));
+        }
         vr_req.rtr_req.rtr_src_size = vr_req.rtr_req.rtr_marker_size = 0;
         ret = fs->route_del(fs, &vr_req);
-        vr_free(vr_req.rtr_req.rtr_prefix);
+        if (req ->rtr_family != AF_BRIDGE)
+            vr_free(vr_req.rtr_req.rtr_prefix);
     }
 
+error:
     vr_send_response(ret);
 
     return ret;
