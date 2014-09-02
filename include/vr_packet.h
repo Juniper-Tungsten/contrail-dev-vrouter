@@ -80,7 +80,8 @@
 #define VP_TYPE_L2OIP           5
 #define VP_TYPE_VXLAN           6
 #define VP_TYPE_AGENT           7
-#define VP_TYPE_MAX             8 
+#define VP_TYPE_ARP             8
+#define VP_TYPE_MAX             9
 
 /*
  * Values to define how to proceed with handling a packet.
@@ -88,7 +89,6 @@
 #define PKT_RET_FAST_PATH 			1
 #define PKT_RET_SLOW_PATH 			2
 #define PKT_RET_ERROR     			3
-#define PKT_RET_FALLBACK_BRIDGING 		4
 
 /*
  * Values to define the MPLS tunnel type
@@ -103,6 +103,17 @@
  */
 #define PKT_ENCAP_MPLS  0x01
 #define PKT_ENCAP_VXLAN 0x02
+
+
+/*
+ * Values to define handling of ARP packet
+ */
+#define PKT_ARP_DROP            0x00
+#define PKT_ARP_PROXY           0x01
+#define PKT_ARP_XCONNECT        0x02
+#define PKT_ARP_FLOOD           0x03
+#define PKT_ARP_TRAP_XCONNECT   0x04
+
 
 /* packet drop reasons */
 #define VP_DROP_DISCARD                     0
@@ -226,9 +237,7 @@ struct vr_packet_node {
 extern void pkt_reset(struct vr_packet *);
 extern struct vr_packet *pkt_copy(struct vr_packet *, unsigned short,
         unsigned short);
-extern int vr_trap(struct vr_packet *, unsigned short, unsigned short, void *);
 extern int vr_myip(struct vr_interface *, unsigned int);
-extern bool vr_should_proxy(struct vr_interface *, unsigned int, unsigned int);
 
 struct vr_eth {
     unsigned char eth_dmac[VR_ETHER_ALEN];
