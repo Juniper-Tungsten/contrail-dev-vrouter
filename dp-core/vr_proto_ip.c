@@ -66,9 +66,12 @@ vr_forward(struct vrouter *router, unsigned short vrf,
     struct vr_route_req rt;
     struct vr_nexthop *nh;
     struct vr_ip *ip;
-    struct vr_ip6 *ip6;
+    struct vr_ip6 *ip6, *outer_ip6;
+    struct vr_icmp *icmph;
     struct vr_forwarding_md rt_fmd;
-    int family = AF_INET, status;
+    struct vr_interface *vif;
+    int family = AF_INET, status, encap_len = 0;
+    short plen;
 
     if (pkt->vp_flags & VP_FLAG_MULTICAST) { 
         return vr_mcast_forward(router, vrf, pkt, fmd);
@@ -107,6 +110,56 @@ vr_forward(struct vrouter *router, unsigned short vrf,
         }
         fmd->fmd_label = rt.rtr_req.rtr_label;
     } 
+    
+    vif = nh->nh_dev;
+
+    if (vif) {
+        if (vif->vif_type == VIF_TYPE_PHYSICAL) {
+            encap_len = sizeof(struct vr_eth) + sizeof(struct vr_ip)+ sizeof(struct vr_udp) +sizeof(unsigned int);
+        }
+            
+       if (family == AF_INET) {
+           if ((ip->ip_frag_off & VR_IP_DF) &&
+               (vif->vif_mtu < (sizeof(struct vr_ip)+ip->ip_len+encap_len))) {
+           }
+       } else if (family == AF_INET6) {
+           plen = ntohs(ip6->ip6_plen);
+           /* Handle PMTU for inet6 */
+           if (vif->vif_mtu < (sizeof(struct vr_ip6)+plen+encap_len)) {
+               /*Send ICMP too big message */
+               if (pkt->vp_data < (sizeof(struct vr_ip6) + sizeof(struct vr_icmp))) {
+                   /* Not enough head room to add ip6/icmpv6 headers*/
+                   vr_pfree(pkt, VP_DROP_PUSH);
+                   return 0;
+               }
+               icmph = (struct vr_icmp*) pkt_push(pkt, sizeof(struct vr_icmp));
+               icmph->icmp_type = 2; //Packet too big
+               icmph->icmp_code = 0;
+               icmph->icmp_csum = 0;
+               icmph->icmp_eid = 0;
+               icmph->icmp_eseq = htons(vif->vif_mtu - encap_len); /*set MTU in lower bytes of second word*/
+
+               /* Build the outer header */
+               outer_ip6 = (struct vr_ip6*) pkt_push(pkt, sizeof(struct vr_ip6));
+               memcpy(outer_ip6, ip6, sizeof(struct vr_ip6));
+               memcpy(outer_ip6->ip6_dst, ip6->ip6_src, 16);
+               memcpy(outer_ip6->ip6_src, ip6->ip6_dst, 16);
+               outer_ip6->ip6_src[15] = 0xff; //Mimic the GW IP as the src IP
+               
+               if (pkt->vp_if->vif_mtu >= (plen + 2*sizeof(struct vr_ip6) 
+                                                    + sizeof(struct vr_icmp))) {
+                   outer_ip6->ip6_plen = htons(plen + sizeof(struct vr_ip6) + sizeof(struct vr_icmp));
+               } else {
+                   /* Chop the packet at the tail for the added header*/
+               }
+               /* Update packet pointers, perform route lookup and forward */
+               pkt_set_network_header(pkt, pkt->vp_data);
+
+               memcpy(rt.rtr_req.rtr_prefix, outer_ip6->ip6_dst, 16);
+               nh = vr_inet_route_lookup(vrf, &rt, pkt);
+           }
+       }
+    }
     
     status =  nh_output(vrf, pkt, nh, fmd);
     vr_free(rt.rtr_req.rtr_prefix);
