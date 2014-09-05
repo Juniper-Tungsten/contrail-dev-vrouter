@@ -244,7 +244,7 @@ vr_pkt_type(struct vr_packet *pkt)
     pkt_set_network_header(pkt, pkt->vp_data + pull_len);
     if (eth_proto == VR_ETH_PROTO_IP)
         pkt->vp_type = VP_TYPE_IP;
-    if (eth_proto == VR_ETH_PROTO_IP6)
+    else if (eth_proto == VR_ETH_PROTO_IP6)
         pkt->vp_type = VP_TYPE_IP6;
     else if (eth_proto == VR_ETH_PROTO_ARP)
         pkt->vp_type = VP_TYPE_ARP;
