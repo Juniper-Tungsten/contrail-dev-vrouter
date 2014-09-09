@@ -404,7 +404,8 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
         vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
         return 1;
     } else if (pkt->vp_type == VP_TYPE_IP6) {
-         return vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+         vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+         return 1;
     } else if (pkt->vp_type == VP_TYPE_ARP) {
         return vr_arp_input(vrf, pkt, fmd);
     }
@@ -453,7 +454,8 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
          }
          return vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
     } else if (pkt->vp_type == VP_TYPE_IP6) {
-         return vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+         vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+         return 1;
     }
         
     /* Restore back the L2 headers */
