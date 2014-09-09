@@ -1049,7 +1049,8 @@ lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
             pull_len += VR_MPLS_HDR_LEN + VR_L2_MCAST_CTRL_DATA_LEN +
                             VR_VXLAN_HDR_LEN + sizeof(struct vr_eth);
             pkt->vp_type = VP_TYPE_L2;
-        } else if (pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) {
+        } else if ((pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) ||
+                    (pkt_type == PKT_MPLS_TUNNEL_L2_MCAST_EVPN)) {
             /* L2 packet with no control information */
             eth = (struct vr_eth *)(va + pull_len + VR_MPLS_HDR_LEN);
             pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_eth);
@@ -1068,6 +1069,7 @@ lh_pull_inner_headers_fast_udp(struct vr_packet *pkt, int
             goto slow_path;
 
         eth = (struct vr_eth *)(va + sizeof(struct vr_vxlan));
+        pkt->vp_type = VP_TYPE_L2;
     } else {
         goto unhandled;
     }
@@ -1417,7 +1419,8 @@ lh_pull_inner_headers_fast_gre(struct vr_packet *pkt, int
 
         pull_len += VR_MPLS_HDR_LEN + l2_len + sizeof(struct vr_eth);
         pkt->vp_type = VP_TYPE_L2;
-    } else if (pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) {
+    } else if ((pkt_type == PKT_MPLS_TUNNEL_L2_UCAST) ||
+               (pkt_type == PKT_MPLS_TUNNEL_L2_MCAST_EVPN)) {
         /* L2 packet with no control information */
         eth = (struct vr_eth *)(va + pull_len + VR_MPLS_HDR_LEN);
         pull_len += VR_MPLS_HDR_LEN + sizeof(struct vr_eth);
@@ -1745,7 +1748,8 @@ lh_pull_inner_headers(struct vr_packet *pkt,
             eth = (struct vr_eth *) (skb->head + hoff);
             pkt->vp_type = VP_TYPE_L2;
 
-        } else if (ret == PKT_MPLS_TUNNEL_L2_UCAST) {
+        } else if ((ret == PKT_MPLS_TUNNEL_L2_UCAST) ||
+                   (ret == PKT_MPLS_TUNNEL_L2_MCAST_EVPN)) {
 
             /* L2 unicast packet */
             pull_len = pull_len - VR_L2_MCAST_CTRL_DATA_LEN + 
@@ -1764,6 +1768,7 @@ lh_pull_inner_headers(struct vr_packet *pkt,
         /* Ethernet header is already pulled as part of vxlan above */
         hoff = pkt->vp_data + hdr_len + sizeof(struct vr_vxlan);
         eth = (struct vr_eth *) (skb->head + hoff);
+        pkt->vp_type = VP_TYPE_L2;
     }
 
 
