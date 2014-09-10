@@ -483,6 +483,9 @@ nh_composite_mcast_l2(unsigned short vrf, struct vr_packet *pkt,
         goto drop;
     }
 
+    /* Mark the packet as Multicast */
+    pkt->vp_flags |= VP_FLAG_MULTICAST;
+
     evpn_src = 0;
     if (nh->nh_validate_src) {
         if (nh->nh_validate_src(vrf, pkt, nh, fmd, &evpn_src) == NH_SOURCE_INVALID) {
@@ -603,6 +606,9 @@ nh_composite_mcast_l3(unsigned short vrf, struct vr_packet *pkt,
         drop_reason = VP_DROP_NO_FMD;
         goto drop;
     }
+
+    /* Mark the packet as Multicast */
+    pkt->vp_flags |= VP_FLAG_MULTICAST;
 
     if (nh->nh_validate_src) {
         if (nh->nh_validate_src(vrf, pkt, nh, fmd, NULL) == NH_SOURCE_INVALID) {
