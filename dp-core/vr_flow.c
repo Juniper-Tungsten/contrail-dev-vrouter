@@ -810,6 +810,8 @@ print_data(const char* str, uint8_t* data, int len)
 }
 #endif
 
+extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
+                struct vr_route_req *, struct vr_packet *);
 unsigned int
 vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
         struct vr_packet *pkt, unsigned short proto,
@@ -818,9 +820,13 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
     struct vr_ip6 *ip6;
     struct vr_eth *eth;
     unsigned int trap_res  = 0;
-    unsigned short *t_hdr, sport, dport;
+    unsigned short *t_hdr, sport, dport, eth_off;
     struct vr_icmp *icmph;
     unsigned char vr_mac[VR_ETHER_ALEN], *icmp_opt_ptr;
+    int proxy = 0;
+    struct vr_route_req rt;
+    struct vr_nexthop *nh;
+    struct vr_interface *vif = pkt->vp_if;
    
     pkt->vp_type = VP_TYPE_IP6;
     ip6 = (struct vr_ip6 *)pkt_network_header(pkt); 
@@ -837,15 +843,58 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
             dport = VR_ICMP_TYPE_ECHO_REPLY;
             break;
         case 135: //Neighbor Solicit, respond with VRRP MAC
-             /* 
-              * Update IPv6 header  
-              * Copy the IP6 src to IP6 dst 
-              * Copy the target IP n ICMPv6 header as src IP of packet
-              * Do IP lookup to confirm if we can respond with 
-              * Neighbor advertisement
-              */
+
+            rt.rtr_req.rtr_vrf_id = vrf;
+            rt.rtr_req.rtr_family = AF_INET6;
+            rt.rtr_req.rtr_prefix = vr_zalloc(16);
+            if (!rt.rtr_req.rtr_prefix)
+                 return false;
+            memcpy(rt.rtr_req.rtr_prefix, &icmph->icmp_data, 16);
+            rt.rtr_req.rtr_prefix_size = 16;
+            rt.rtr_req.rtr_prefix_len = 128;
+            rt.rtr_req.rtr_nh_id = 0;
+            rt.rtr_req.rtr_label_flags = 0;
+            rt.rtr_req.rtr_src_size = rt.rtr_req.rtr_marker_size = 0;
+        
+            nh = vr_inet_route_lookup(vrf, &rt, NULL);
+            if (!nh || nh->nh_type == NH_DISCARD) {
+                vr_pfree(pkt, VP_DROP_ARP_NOT_ME);
+                return 1;
+            }
+        
+            if (rt.rtr_req.rtr_label_flags & VR_RT_HOSTED_FLAG) {
+                proxy = 1;
+            }
+
+            /*
+             * If an L3VPN route is learnt, we need to proxy
+             */
+            if (nh->nh_type == NH_TUNNEL) {
+                proxy = 1;
+            }
+
+            /*
+             * If not l3 vpn route, we default to flooding
+             */
+            if ((nh->nh_type == NH_COMPOSITE) &&
+                (nh->nh_flags & NH_FLAG_COMPOSITE_EVPN)) {
+                nh_output(vrf, pkt, nh, fmd);
+                return 1;
+            } else if (!proxy) {
+                vr_pfree(pkt, VP_DROP_ARP_NOT_ME);
+                return 1;
+            }
+
+            /* 
+             * Update IPv6 header  
+             * Copy the IP6 src to IP6 dst 
+             * Copy the target IP n ICMPv6 header as src IP of packet
+             * Do IP lookup to confirm if we can respond with 
+             * Neighbor advertisement
+             */
              memcpy(ip6->ip6_dst, ip6->ip6_src, 16);
              memcpy(ip6->ip6_src, &icmph->icmp_data, 16);
+             ip6->ip6_src[15] = 0xFF; // Mimic a different src IP
 
              //TODO: Update checksum
 
@@ -862,11 +911,18 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
              memcpy(icmp_opt_ptr+2, vr_mac, VR_ETHER_ALEN);
              
              /* Update Ethernet headr */
-             eth = (struct vr_eth*) ((char*)ip6 - 18);
+             eth = (struct vr_eth*) ((char*)ip6 - sizeof(struct vr_eth));
              memcpy(eth->eth_dmac, eth->eth_smac, VR_ETHER_ALEN);
              memcpy(eth->eth_smac, vr_mac, VR_ETHER_ALEN);
+
+             eth_off = pkt_get_network_header_off(pkt) - sizeof(struct vr_eth);
+
+             pkt_set_data(pkt,eth_off);
+
+             /* Respond back directly*/
+             vif->vif_tx(vif, pkt);
              
-             break;
+             return 1;
         case 133: //Router solicit, trap to agent
              return vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
         default:
