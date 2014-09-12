@@ -1357,7 +1357,8 @@ nh_output(unsigned short vrf, struct vr_packet *pkt,
         ip = (struct vr_ip *)pkt_network_header(pkt);
         if (vr_ip_is_ip6(ip)) {
             pkt->vp_type = VP_TYPE_IP6;
-            return vr_flow_inet6_input(nh->nh_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+            vr_flow_inet6_input(nh->nh_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+            return 1;
         }
         if (!(pkt->vp_flags & VP_FLAG_FLOW_SET)) {
             if (nh->nh_flags & NH_FLAG_POLICY_ENABLED) {
