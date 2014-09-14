@@ -452,7 +452,8 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
                 return 1;
             }
          }
-         return vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+         vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+         return 1;
     } else if (pkt->vp_type == VP_TYPE_IP6) {
          vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
          return 1;

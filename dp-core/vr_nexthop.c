@@ -1373,8 +1373,9 @@ nh_output(unsigned short vrf, struct vr_packet *pkt,
 
             if (need_flow_lookup) {
                 pkt->vp_flags |= VP_FLAG_FLOW_GET;
-                return vr_flow_inet_input(nh->nh_router, vrf,
+                vr_flow_inet_input(nh->nh_router, vrf,
                         pkt, VR_ETH_PROTO_IP, fmd);
+                return 1;
             }
         }
     }
