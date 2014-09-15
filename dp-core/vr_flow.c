@@ -10,6 +10,7 @@
 #include "vr_btable.h"
 #include "vr_fragment.h"
 #include "vr_datapath.h"
+#include "vr_ip4_mtrie.h"
 
 #define VR_NUM_FLOW_TABLES          1
 #define VR_DEF_FLOW_ENTRIES         (512 * 1024)
@@ -822,7 +823,7 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
     unsigned int trap_res  = 0;
     unsigned short *t_hdr, sport, dport, eth_off;
     struct vr_icmp *icmph;
-    unsigned char vr_mac[VR_ETHER_ALEN], *icmp_opt_ptr;
+    unsigned char *icmp_opt_ptr;
     int proxy = 0;
     struct vr_route_req rt;
     struct vr_nexthop *nh;
@@ -836,13 +837,13 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
         /* First word on ICMP and ICMPv6 are same */
         icmph = (struct vr_icmp *)t_hdr;
         switch (icmph->icmp_type) {
-        case 128: //Echo Request
-        case 129: //Echo Reply
+        case VR_ICMP6_TYPE_ECHO_REQ: 
+        case VR_ICMP6_TYPE_ECHO_REPLY: 
             /* ICMPv6 Echo format is same as ICMP */
             sport = icmph->icmp_eid;
-            dport = VR_ICMP_TYPE_ECHO_REPLY;
+            dport = VR_ICMP6_TYPE_ECHO_REPLY;
             break;
-        case 135: //Neighbor Solicit, respond with VRRP MAC
+        case VR_ICMP6_TYPE_NEIGH_SOL: //Neighbor Solicit, respond with VRRP MAC
 
             rt.rtr_req.rtr_vrf_id = vrf;
             rt.rtr_req.rtr_family = AF_INET6;
@@ -851,11 +852,16 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
                  return false;
             memcpy(rt.rtr_req.rtr_prefix, &icmph->icmp_data, 16);
             rt.rtr_req.rtr_prefix_size = 16;
-            rt.rtr_req.rtr_prefix_len = 128;
+            rt.rtr_req.rtr_prefix_len = IP6_PREFIX_LEN;
             rt.rtr_req.rtr_nh_id = 0;
             rt.rtr_req.rtr_label_flags = 0;
             rt.rtr_req.rtr_src_size = rt.rtr_req.rtr_marker_size = 0;
         
+            /* For L2-only networks, need to identify the flood NH */
+            if (vif_is_virtual(vif) && !(vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
+                memcpy(rt.rtr_req.rtr_prefix, ip6->ip6_dst, 16);
+            }
+
             nh = vr_inet_route_lookup(vrf, &rt, NULL);
             if (!nh || nh->nh_type == NH_DISCARD) {
                 vr_pfree(pkt, VP_DROP_ARP_NOT_ME);
@@ -877,7 +883,8 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
              * If not l3 vpn route, we default to flooding
              */
             if ((nh->nh_type == NH_COMPOSITE) &&
-                (nh->nh_flags & NH_FLAG_COMPOSITE_EVPN)) {
+                ((nh->nh_flags & NH_FLAG_COMPOSITE_EVPN) || 
+                  (nh->nh_flags & NH_FLAG_COMPOSITE_L2))) {
                 nh_output(vrf, pkt, nh, fmd);
                 return 1;
             } else if (!proxy) {
@@ -899,21 +906,15 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
              //TODO: Update checksum
 
              /* Update ICMP header and options */
-             vr_mac[0] = 0x00;
-             vr_mac[1] = 0x00;
-             vr_mac[2] = 0x5E;
-             vr_mac[3] = 0x00;
-             vr_mac[4] = 0x01;
-             vr_mac[5] = 0x00;
-             icmph->icmp_type = 136; 
+             icmph->icmp_type = VR_ICMP6_TYPE_NEIGH_AD; 
              icmp_opt_ptr = ((char*)&icmph->icmp_data[0]) + 16;
              *icmp_opt_ptr = 0x02; //Target-link-layer-address
-             memcpy(icmp_opt_ptr+2, vr_mac, VR_ETHER_ALEN);
+             memcpy(icmp_opt_ptr+2, vif->vif_mac, VR_ETHER_ALEN);
              
              /* Update Ethernet headr */
              eth = (struct vr_eth*) ((char*)ip6 - sizeof(struct vr_eth));
              memcpy(eth->eth_dmac, eth->eth_smac, VR_ETHER_ALEN);
-             memcpy(eth->eth_smac, vr_mac, VR_ETHER_ALEN);
+             memcpy(eth->eth_smac, vif->vif_mac, VR_ETHER_ALEN);
 
              eth_off = pkt_get_network_header_off(pkt) - sizeof(struct vr_eth);
 
@@ -923,7 +924,7 @@ vr_flow_inet6_input(struct vrouter *router, unsigned short vrf,
              vif->vif_tx(vif, pkt);
              
              return 1;
-        case 133: //Router solicit, trap to agent
+        case VR_ICMP6_TYPE_ROUTER_SOL: //Router solicit, trap to agent
              return vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
         default:
             sport = 0;

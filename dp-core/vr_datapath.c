@@ -451,9 +451,7 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
                 vr_pfree(pkt, reason);
                 return 1;
             }
-         }
-         vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
-         return 1;
+        }
     } else if (pkt->vp_type == VP_TYPE_IP6) {
          vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
          return 1;
@@ -476,19 +474,26 @@ vr_l3_well_known_packet(unsigned short vrf, struct vr_packet *pkt)
 {
     unsigned char *data = pkt_data(pkt);
     struct vr_ip *iph;
+    struct vr_ip6 *ip6;
     struct vr_udp *udph;
     unsigned char *l3_hdr;
 
     l3_hdr = pkt_network_header(pkt);
     if (pkt->vp_if->vif_type == VIF_TYPE_VIRTUAL && IS_MAC_BMCAST(data)) {
         iph = (struct vr_ip *)l3_hdr;
-        if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
+        if (!vr_ip_is_ip6(iph)) {
+            if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
                               vr_ip_transport_header_valid(iph)) {
-            udph = (struct vr_udp *)(l3_hdr + iph->ip_hl * 4);
-            if (udph->udp_sport == htons(68)) {
+                udph = (struct vr_udp *)(l3_hdr + iph->ip_hl * 4);
+                if (udph->udp_sport == htons(68)) {
+                    return true;
+                }
+            }
+        } else { //IPv6
+            ip6 = (struct vr_ip6 *)pkt_data(pkt);
+            if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
                 return true;
             }
-
         }
     }
 

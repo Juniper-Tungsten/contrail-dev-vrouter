@@ -7,6 +7,7 @@
 #include "vr_mpls.h"
 #include "vr_vxlan.h"
 #include "vr_mcast.h"
+#include "vr_ip4_mtrie.h"
 
 extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
                 struct vr_route_req *, struct vr_packet *);
@@ -41,14 +42,14 @@ vr_inet_src_lookup(unsigned short vrf, struct vr_ip *ip, struct vr_packet *pkt)
         rt.rtr_req.rtr_prefix = vr_zalloc(4);
         *(uint32_t*)rt.rtr_req.rtr_prefix = (ip->ip_saddr);
         rt.rtr_req.rtr_prefix_size = 4;
-        rt.rtr_req.rtr_prefix_len = 32;
+        rt.rtr_req.rtr_prefix_len = IP4_PREFIX_LEN;
     } else {
         ip6 = (struct vr_ip6 *)pkt_data(pkt);
         pkt->vp_type = VP_TYPE_IP6;
         rt.rtr_req.rtr_prefix = vr_zalloc(16);
         rt.rtr_req.rtr_prefix_size = 16;
         memcpy(rt.rtr_req.rtr_prefix, ip6->ip6_src, 16);
-        rt.rtr_req.rtr_prefix_len = 128;
+        rt.rtr_req.rtr_prefix_len = IP6_PREFIX_LEN;
     }
     rt.rtr_req.rtr_src_size = rt.rtr_req.rtr_marker_size = 0;
     rt.rtr_req.rtr_nh_id = 0;
@@ -92,12 +93,12 @@ vr_forward(struct vrouter *router, unsigned short vrf,
         rt.rtr_req.rtr_prefix = vr_zalloc(4);
         *(uint32_t*)rt.rtr_req.rtr_prefix = (ip->ip_daddr);
         rt.rtr_req.rtr_prefix_size = 4;
-        rt.rtr_req.rtr_prefix_len = 32;
+        rt.rtr_req.rtr_prefix_len = IP4_PREFIX_LEN;
     } else {
         rt.rtr_req.rtr_prefix = vr_zalloc(16);
         rt.rtr_req.rtr_prefix_size = 16;
         memcpy(rt.rtr_req.rtr_prefix, ip6->ip6_dst, 16);
-        rt.rtr_req.rtr_prefix_len = 128;
+        rt.rtr_req.rtr_prefix_len = IP6_PREFIX_LEN;
     }
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_src_size = rt.rtr_req.rtr_marker_size = 0;
@@ -540,7 +541,7 @@ vr_route_flags(unsigned int vrf, unsigned int ip)
          return false;
 
     *(uint32_t*)rt.rtr_req.rtr_prefix = (ip);
-    rt.rtr_req.rtr_prefix_len = 32;
+    rt.rtr_req.rtr_prefix_len = IP4_PREFIX_LEN;
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_label_flags = 0;
 
@@ -599,7 +600,7 @@ vr_myip(struct vr_interface *vif, unsigned int ip)
          return 0;
 
     *(uint32_t*)rt.rtr_req.rtr_prefix = (ip);
-    rt.rtr_req.rtr_prefix_len = 32;
+    rt.rtr_req.rtr_prefix_len = IP4_PREFIX_LEN;
     rt.rtr_req.rtr_prefix_size = 4;
     rt.rtr_req.rtr_src_size = rt.rtr_req.rtr_marker_size = 0;
     rt.rtr_req.rtr_nh_id = 0;

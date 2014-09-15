@@ -480,6 +480,12 @@ struct vr_udp {
 #define VR_ICMP_TYPE_ECHO           8
 #define VR_ICMP_TYPE_TIME_EXCEEDED 11
 
+#define VR_ICMP6_TYPE_ECHO_REQ     128
+#define VR_ICMP6_TYPE_ECHO_REPLY   129
+#define VR_ICMP6_TYPE_ROUTER_SOL   133
+#define VR_ICMP6_TYPE_NEIGH_SOL    135
+#define VR_ICMP6_TYPE_NEIGH_AD     136
+
 struct vr_icmp {
     uint8_t icmp_type;
     uint8_t icmp_code;
