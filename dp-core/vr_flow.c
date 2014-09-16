@@ -10,7 +10,7 @@
 #include "vr_btable.h"
 #include "vr_fragment.h"
 #include "vr_datapath.h"
-#include "vr_ip4_mtrie.h"
+#include "vr_ip_mtrie.h"
 
 #define VR_NUM_FLOW_TABLES          1
 #define VR_DEF_FLOW_ENTRIES         (512 * 1024)

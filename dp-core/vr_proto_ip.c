@@ -7,7 +7,7 @@
 #include "vr_mpls.h"
 #include "vr_vxlan.h"
 #include "vr_mcast.h"
-#include "vr_ip4_mtrie.h"
+#include "vr_ip_mtrie.h"
 
 extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
                 struct vr_route_req *, struct vr_packet *);

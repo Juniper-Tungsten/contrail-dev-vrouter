@@ -6,7 +6,7 @@
 #include <vr_os.h>
 #include "vr_sandesh.h"
 #include "vr_message.h"
-#include "vr_ip4_mtrie.h"
+#include "vr_ip_mtrie.h"
 
 extern struct vr_nexthop *ip4_default_nh; 
 
