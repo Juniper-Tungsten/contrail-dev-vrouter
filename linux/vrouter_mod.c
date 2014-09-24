@@ -737,8 +737,6 @@ lh_adjust_tcp_mss(struct tcphdr *tcph, struct sk_buff *skb, unsigned short overl
                     opt_ptr[opt_off+2] = (max_mss & 0xff00) >> 8;
                     opt_ptr[opt_off+3] = max_mss & 0xff;
 
-                    vr_printf ("Adjusting MSS from %d to %d \n", pkt_mss, max_mss);
-
                     inet_proto_csum_replace2(&tcph->check, skb,
                                              htons(pkt_mss),
                                              htons(max_mss), 0);
