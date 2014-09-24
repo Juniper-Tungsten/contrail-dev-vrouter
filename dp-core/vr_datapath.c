@@ -25,6 +25,7 @@ vr_arp_request_treatment(struct vr_interface *vif, struct vr_arp *arp,
 {
     struct vr_route_req rt;
     struct vr_nexthop *nh;
+    uint32_t rt_prefix;
 
     /*
      * Packet from VM :
@@ -75,9 +76,7 @@ vr_arp_request_treatment(struct vr_interface *vif, struct vr_arp *arp,
     }
 
     rt.rtr_req.rtr_vrf_id = vif->vif_vrf;
-    rt.rtr_req.rtr_prefix = vr_zalloc(4);
-    if (!rt.rtr_req.rtr_prefix)
-         return false;
+    rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
     *(uint32_t*)rt.rtr_req.rtr_prefix = (arp->arp_dpa);
     rt.rtr_req.rtr_prefix_size = 4;
     rt.rtr_req.rtr_prefix_len = 32;
@@ -404,6 +403,14 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
         vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
         return 1;
     } else if (pkt->vp_type == VP_TYPE_IP6) {
+        pkt_set_inner_network_header(pkt, pkt->vp_data);
+        if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj &&
+            (vif->vif_type == VIF_TYPE_VIRTUAL)) {
+            if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, VROUTER_OVERLAY_LEN))) {
+                vr_pfree(pkt, reason);
+                return 1;
+            }
+        }
          vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
          return 1;
     } else if (pkt->vp_type == VP_TYPE_ARP) {
@@ -488,6 +495,7 @@ vr_l3_well_known_packet(unsigned short vrf, struct vr_packet *pkt)
             }
         } else { //IPv6
             ip6 = (struct vr_ip6 *)l3_hdr;
+            // 0xFF02 is the multicast address used for NDP, DHCPv6 etc
             if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
                 return true;
             }

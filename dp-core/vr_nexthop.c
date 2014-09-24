@@ -1534,11 +1534,11 @@ nh_encap_l3_unicast(unsigned short vrf, struct vr_packet *pkt,
          * Same NH for both V4 and V6, update the rewrite data with correct ethtype
          */
         if (pkt->vp_type == VP_TYPE_IP6) {
-            nh->nh_data[12] = 0x86;
-            nh->nh_data[13] = 0xDD;
+            nh->nh_data[nh->nh_encap_len-2] = 0x86;
+            nh->nh_data[nh->nh_encap_len-1] = 0xDD;
         } else {
-            nh->nh_data[12] = 0x08;
-            nh->nh_data[13] = 0x00;
+            nh->nh_data[nh->nh_encap_len-2] = 0x08;
+            nh->nh_data[nh->nh_encap_len-1] = 0x00;
         }
             
         if (!vif->vif_set_rewrite(vif, pkt, nh->nh_data,

@@ -28,7 +28,6 @@ struct mtrie_bkt_info ip6_bkt_info[IP6_BKT_LEVELS];
 
 struct ip_mtrie **vn_rtable[2];
 static int algo_init_done = 0;
-static unsigned char local_buf[64];
 static vr_route_req dump_resp;
 
 static void
@@ -347,6 +346,11 @@ __mtrie_add(struct ip_mtrie *mtrie, struct vr_route_req *rt)
             }
 
 
+             /* 
+              * Run through the loop 'fin' times only
+              * If fin is 0, it actually means 256 ('char' overflow), so run the
+              * loop 256 times
+              */
              for (i = index; i <= (ip_bkt_info[level].bi_size-1); i++) {
                 ent = index_to_entry(bkt, i);
                 if (ENTRY_IS_BUCKET(ent))
@@ -532,6 +536,7 @@ mtrie_dump_entry(struct vr_message_dumper *dumper, struct ip_bucket_entry *ent,
     struct mtrie_bkt_info *ip_bkt_info;
     vr_route_req *req;
     int done = 0;
+    uint32_t rt_prefix[4];
 
     req = dumper->dump_req;
 
@@ -575,28 +580,12 @@ mtrie_dump_entry(struct vr_message_dumper *dumper, struct ip_bucket_entry *ent,
                 return -1;
         }
     } else if (ent_p->entry_nh_p) {
-        dump_resp.rtr_prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
+        dump_resp.rtr_prefix = (uint8_t*)&rt_prefix;
         mtrie_dumper_make_response(dumper, &dump_resp, ent_p, prefix,
                 ip_bkt_info[level - 1].bi_pfx_len);
 
-#ifdef VR_ROUTE_DEBUG
-        if (req->rtr_family == AF_INET6) {
-           sprintf(local_buf, "%2x%2x:%2x%2x:%2x%2x:%2x%2x:%2x%2x:%2x%2x:%2x%2x:%2x%2x", (unsigned char)prefix[0], (unsigned char)prefix[1], (unsigned char)prefix[2], (unsigned char)prefix[3], (unsigned char)prefix[4], (unsigned char)prefix[5], (unsigned char)prefix[6], (unsigned char)prefix[7], (unsigned char)prefix[8], (unsigned char)prefix[9], (unsigned char)prefix[10], (unsigned char)prefix[11], (unsigned char)prefix[12], (unsigned char)prefix[13], (unsigned char)prefix[14], (unsigned char)prefix[15]);
-        } else {
-            sprintf(local_buf, "%u.%u.%u.%u", (unsigned char)prefix[0], (unsigned char)prefix[1], (unsigned char)prefix[2], (unsigned char)prefix[3]);
-        }
-
-        vr_printf("%s/%u\t\t", local_buf, ip_bkt_info[level - 1].bi_pfx_len);
-        if (ent_p->entry_label_flags) {
-            vr_printf("%d\t", ent_p->entry_label);
-        } else {
-            vr_printf("N/A\t");
-        }
-        vr_printf("%d\n", ent_p->entry_nh_p->nh_id);
-#endif
         ret = mtrie_dumper_route_encode(dumper, &dump_resp);
 
-        vr_free(dump_resp.rtr_prefix);
         dump_resp.rtr_prefix = NULL;
         if (ret <= 0)
            return -1;
@@ -612,7 +601,7 @@ mtrie_walk(struct vr_message_dumper *dumper, unsigned int family)
     struct ip_mtrie *mtrie;
     struct ip_bucket_entry *ent;
     int ret = 0;
-    int8_t *prefix;
+    uint32_t rt_prefix[4];
 
     req = (vr_route_req *)dumper->dump_req;
     mtrie = vrfid_to_mtrie(req->rtr_vrf_id, family);
@@ -622,11 +611,7 @@ mtrie_walk(struct vr_message_dumper *dumper, unsigned int family)
     ent = &mtrie->root;
 
     if (ENTRY_IS_BUCKET(ent)) {
-        prefix = vr_zalloc(RT_IP_ADDR_SIZE(req->rtr_family));
-        if (!prefix)
-            return -ENOMEM; 
-        ret =  mtrie_dump_entry(dumper, ent, prefix, 0);
-        vr_free(prefix);
+        ret =  mtrie_dump_entry(dumper, ent, (uint8_t*)&rt_prefix, 0);
     }
 
     return ret;
